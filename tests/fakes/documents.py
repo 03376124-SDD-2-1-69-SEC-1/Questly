@@ -10,6 +10,7 @@ from questly.core.documents.models import (
     KnowledgeDocument,
     StoredObject,
 )
+from questly.core.documents.ports import ObjectStorageError
 
 FAKE_BUCKET = "fake-bucket"
 
@@ -26,10 +27,13 @@ class FakeObjectStorage:
         return StoredObject(bucket=self.bucket, key=key)
 
     def get(self, key: str) -> bytes:
-        return self.objects[key]
+        try:
+            return self.objects[key]
+        except KeyError as error:
+            raise ObjectStorageError from error
 
     def delete(self, key: str) -> None:
-        del self.objects[key]
+        self.objects.pop(key, None)
 
 
 class FakeKnowledgeDocumentRepository:
@@ -78,11 +82,45 @@ class FakeKnowledgeDocumentRepository:
         return self._library_item(document_id)
 
     def delete_for_owner(self, document_id: int, uploaded_by: int) -> bool:
-        if self._owners.get(document_id) != uploaded_by or self._usage[document_id]:
+        document = self._items.get(document_id)
+
+        if document is None:
             return False
+
+        if self._owners.get(document_id) != uploaded_by:
+            return False
+
+        if document.status != DocumentStatus.UPLOADED:
+            return False
+
+        if self._usage.get(document_id, 0) > 0:
+            return False
+
         del self._items[document_id]
         del self._owners[document_id]
         del self._usage[document_id]
+        return True
+
+    def update_status_for_owner(
+        self,
+        document_id: int,
+        uploaded_by: int,
+        *,
+        expected_status: DocumentStatus,
+        new_status: DocumentStatus,
+    ) -> bool:
+        document = self._items.get(document_id)
+
+        if document is None:
+            return False
+
+        if self._owners.get(document_id) != uploaded_by:
+            return False
+
+        if document.status != expected_status:
+            return False
+
+        self._items[document_id] = replace(document, status=new_status)
         return True
 
     def seed_usage(self, document_id: int, count: int = 1) -> None:

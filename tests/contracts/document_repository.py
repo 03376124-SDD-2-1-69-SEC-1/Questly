@@ -2,7 +2,11 @@
 
 from collections.abc import Callable
 
-from questly.core.documents.models import DocumentLibraryItem, KnowledgeDocument
+from questly.core.documents.models import (
+    DocumentLibraryItem,
+    DocumentStatus,
+    KnowledgeDocument,
+)
 from questly.core.documents.ports import KnowledgeDocumentRepository
 
 SeedDocument = Callable[[int, str], KnowledgeDocument]
@@ -56,3 +60,50 @@ class DocumentRepositoryContract:
         assert not repository.delete_for_owner(used.id, 10)
         assert repository.delete_for_owner(unused.id, 10)
         assert repository.get_for_owner(unused.id, 10) is None
+
+    def test_update_status_requires_ownership_and_expected_status(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "status.pdf")
+
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=document.status,
+            new_status=DocumentStatus.READY,
+        )
+
+        updated = repository.get_for_owner(document.id, 10)
+        assert updated is not None
+        assert updated.document.status is DocumentStatus.READY
+
+        assert not repository.update_status_for_owner(
+            document.id,
+            20,
+            expected_status=DocumentStatus.READY,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        assert not repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        unchanged = repository.get_for_owner(document.id, 10)
+        assert unchanged is not None
+        assert unchanged.document.status is DocumentStatus.READY
+
+    def test_update_status_returns_false_for_missing_document(
+        self,
+        repository: KnowledgeDocumentRepository,
+    ) -> None:
+        assert not repository.update_status_for_owner(
+            999,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.READY,
+        )
