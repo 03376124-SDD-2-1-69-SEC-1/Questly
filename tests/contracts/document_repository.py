@@ -116,6 +116,36 @@ class DocumentRepositoryContract:
         assert unchanged is not None
         assert unchanged.document.status is DocumentStatus.READY
 
+    def test_update_status_moves_a_failed_document_back_to_uploaded(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "retry.pdf")
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.FAILED,
+            new_status=DocumentStatus.UPLOADED,
+        )
+        assert not repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.FAILED,
+            new_status=DocumentStatus.UPLOADED,
+        )
+
+        retried = repository.get_for_owner(document.id, 10)
+        assert retried is not None
+        assert retried.document.status is DocumentStatus.UPLOADED
+
     def test_update_status_returns_false_for_missing_document(
         self,
         repository: KnowledgeDocumentRepository,

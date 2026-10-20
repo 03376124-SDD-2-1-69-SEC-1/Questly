@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from questly.core.auth.models import Role
+from questly.core.documents.models import DocumentStatus
 from tests.fakes.app import build_app
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeAuthRepository, seed_user
 from tests.fakes.documents import FakeKnowledgeDocumentRepository, FakeObjectStorage
@@ -180,14 +181,78 @@ async def test_delete_is_hidden_for_other_owners_and_refused_when_referenced() -
 
 
 @pytest.mark.anyio
-async def test_missing_document_ids_return_404_for_get_and_delete() -> None:
+async def test_missing_document_ids_return_404_for_get_delete_and_retry() -> None:
     instructor = await DocumentLibrary().client_for(INSTRUCTOR)
 
     get_response = await instructor.get("/api/v1/documents/999999")
     delete_response = await instructor.delete("/api/v1/documents/999999")
+    retry_response = await instructor.post("/api/v1/documents/999999/retry")
 
-    assert get_response.status_code == delete_response.status_code == 404
+    assert get_response.status_code == 404
+    assert delete_response.status_code == retry_response.status_code == 404
     assert get_response.json()["detail"]["code"] == "knowledge_document_not_found"
+
+
+@pytest.mark.anyio
+async def test_instructor_can_retry_own_failed_document() -> None:
+    library = DocumentLibrary()
+    instructor = await library.client_for(INSTRUCTOR)
+    created = await instructor.post(
+        "/api/v1/documents", files={"file": ("notes.pdf", b"broken")}
+    )
+    document_id = created.json()["id"]
+    library.repository.seed_status(document_id, DocumentStatus.FAILED)
+
+    retried = await instructor.post(f"/api/v1/documents/{document_id}/retry")
+    detail = await instructor.get(f"/api/v1/documents/{document_id}")
+
+    assert retried.status_code == 200
+    assert retried.json()["id"] == document_id
+    assert retried.json()["status"] == "uploaded"
+    assert detail.json()["status"] == "uploaded"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "status",
+    [DocumentStatus.UPLOADED, DocumentStatus.INGESTING, DocumentStatus.READY],
+)
+async def test_retry_is_refused_unless_ingestion_failed(
+    status: DocumentStatus,
+) -> None:
+    library = DocumentLibrary()
+    instructor = await library.client_for(INSTRUCTOR)
+    created = await instructor.post(
+        "/api/v1/documents", files={"file": ("notes.pdf", b"fine")}
+    )
+    document_id = created.json()["id"]
+    library.repository.seed_status(document_id, status)
+
+    response = await instructor.post(f"/api/v1/documents/{document_id}/retry")
+    detail = await instructor.get(f"/api/v1/documents/{document_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "knowledge_document_not_retryable"
+    assert detail.json()["status"] == status.value
+
+
+@pytest.mark.anyio
+async def test_retry_is_hidden_for_another_instructors_document() -> None:
+    library = DocumentLibrary()
+    instructor = await library.client_for(INSTRUCTOR)
+    other = await library.client_for(OTHER_INSTRUCTOR)
+    created = await instructor.post(
+        "/api/v1/documents", files={"file": ("notes.pdf", b"broken")}
+    )
+    document_id = created.json()["id"]
+    library.repository.seed_status(document_id, DocumentStatus.FAILED)
+
+    foreign = await other.post(f"/api/v1/documents/{document_id}/retry")
+    detail = await instructor.get(f"/api/v1/documents/{document_id}")
+
+    assert foreign.status_code == 404
+    assert foreign.json()["detail"]["code"] == "knowledge_document_not_found"
+    assert detail.json()["status"] == "failed"
 
 
 @pytest.mark.anyio
@@ -204,17 +269,21 @@ async def test_student_and_anonymous_document_requests_follow_auth_rules() -> No
     )
     student_detail = await student.get("/api/v1/documents/1")
     student_delete = await student.delete("/api/v1/documents/1")
+    student_retry = await student.post("/api/v1/documents/1/retry")
     anonymous_list = await anonymous.get("/api/v1/documents")
     anonymous_upload = await anonymous.post(
         "/api/v1/documents", files={"file": ("notes.txt", b"anonymous")}
     )
     anonymous_detail = await anonymous.get("/api/v1/documents/1")
     anonymous_delete = await anonymous.delete("/api/v1/documents/1")
+    anonymous_retry = await anonymous.post("/api/v1/documents/1/retry")
 
     assert student_list.status_code == student_upload.status_code == 403
     assert student_detail.status_code == student_delete.status_code == 403
+    assert student_retry.status_code == 403
     assert anonymous_list.status_code == anonymous_upload.status_code == 401
     assert anonymous_detail.status_code == anonymous_delete.status_code == 401
+    assert anonymous_retry.status_code == 401
 
 
 @pytest.mark.anyio
@@ -236,4 +305,5 @@ async def test_openapi_exposes_documents_and_not_uploads() -> None:
 
     assert set(paths["/api/v1/documents"]) == {"post", "get"}
     assert set(paths["/api/v1/documents/{document_id}"]) == {"get", "delete"}
+    assert set(paths["/api/v1/documents/{document_id}/retry"]) == {"post"}
     assert "/api/v1/uploads" not in paths
