@@ -62,6 +62,4 @@ jobs:
       # `postgres` และ `r2` ถูกคัดออก เพราะต้องมี Neon กับ R2 จริง
       # รันแยกด้วย `uv run --env-file .env python -m scripts.run_integration_tests`
       - name: Run tests
-        run: uv run python -m pytest -q -m "not postgres and not r2"
-        env:
-          PYTHONPATH: ${{ github.workspace }}
+        run: uv run pytest -q -m "not postgres and not r2"
