@@ -160,6 +160,7 @@ class SQLKnowledgeDocumentRepository:
         return self._execute_one_row(statement)
 
     def _execute_one_row(self, statement: Delete | Update) -> bool:
+        """Run one DELETE or UPDATE in its own unit of work; wrap DB errors."""
         try:
             with self._session_factory() as session:
                 result = session.execute(statement)
