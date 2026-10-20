@@ -26,7 +26,7 @@ setup and background live in `README.md` and `docs/adr/`.
 | `core/documents`              | Working; Instructor document library persisted on Neon                                                                                                                                                                                                                                                                                                                                                                                                    | CORE-16, OPS-20                 |
 | `core/notifications`, `admin` | Working; persisted on Neon (CORE-18/OPS-21, CORE-19/OPS-22)                                                                                                                                                                                                                                                                                                                                                                                               | done (CORE-18, 19)              |
 | `database/`                   | ADR-0007 + ADR-0008 schema live on Neon (head `a2ec7512fb2c` once OPS-23 is upgraded); a SQL adapter per port, each held to a contract in `tests/contracts/`                                                                                                                                                                                                                                                                                              | done (OPS-15)                   |
-| `ai/`                         | Vector storage (AI-01), ingestion (AI-02 to 04) and retrieval (AI-05) work; embeddings and the real `GenerationClient` (AI-06) call OpenRouter through the `openrouter` SDK (ADR-0009). Retrieval is not yet wired into generation. AI-07 and AI-08 are open. The AI module has no routes; core reaches it through ports (OPS-16). Seed corpus: 100 PDFs on R2 under `sources/programming-in-th/` (OPS-17), not yet in `core.knowledge_documents` (OPS-18) or `rag` (AI-08). | ฟิล์ม (AI-07, 08), พาย (OPS-16) |
+| `ai/`                         | Vector storage (AI-01), ingestion (AI-02 to 04) and retrieval (AI-05) work; embeddings and the real `GenerationClient` (AI-06) call OpenRouter through the `openrouter` SDK (ADR-0009). Retrieval is not yet wired into generation. AI-07 and AI-08 are open. The AI module has no routes; core reaches it through ports (OPS-16). Seed corpus: 100 PDFs on R2 under `sources/programming-in-th/` (OPS-17), registered in `core.knowledge_documents` (99 rows; one seed file was already in the instructor's library as document id 3) as `uploaded`, owned by `instructor@kmitl.ac.th` (OPS-18), not yet in `rag` (AI-08). | ฟิล์ม (AI-07, 08), พาย (OPS-16) |
 | `web/templates/`              | Every page of ADR-0007 exists except T-06 (FE-08); every page is re-skinned to Figma Make (UI-02 done)                                                                                                                                                                                                                                                                                                                                                    | พาย (FE-08)                     |
 
 Every slice also runs on the in-memory fakes in demo mode (`scripts/demo.py`)
@@ -344,6 +344,13 @@ rules and known limits are in `docs/handoff/2026-09-28-OPS-17-pith-seed.md`.
 
 - Re-seed with `uv run --env-file .env python scripts/seed_pith_to_r2.py`
   (`--dry-run` first). It skips objects that exist and never deletes.
+- Register the seed in `core.knowledge_documents` with
+  `uv run --env-file .env python scripts/seed_pith_to_r2.py --register-db --owner-email instructor@kmitl.ac.th`
+  (OPS-18). Rows start as `uploaded` with `metadata` keys `topic`, `difficulty`,
+  `task_id` and `course: "seed-pith"`; a rerun skips rows the owner already has
+  with the same `content_hash`. Only that owner sees the seed on T-03, and only
+  once AI-08 marks the rows `ready`, so test AI-08 signed in as
+  `instructor@kmitl.ac.th`.
 - Do not delete or overwrite objects under that prefix; ingestion work reads them.
 - Tests never read this prefix — the "never hit the real R2 bucket" rule above
   still applies. Use `tests/fixtures/pdfs/` or moto.

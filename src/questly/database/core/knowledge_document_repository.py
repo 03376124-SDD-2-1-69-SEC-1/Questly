@@ -39,6 +39,7 @@ def _to_domain(row: KnowledgeDocumentRow) -> KnowledgeDocument:
         object_key=row.r2_object_key,
         content_hash=row.content_hash,
         status=DocumentStatus(row.status),
+        metadata=dict(row.metadata_),
     )
 
 
@@ -69,6 +70,7 @@ class SQLKnowledgeDocumentRepository:
                 filename=document.filename,
                 content_hash=document.content_hash,
                 status=document.status.value,
+                metadata_=dict(document.metadata),
                 uploaded_by=uploaded_by,
             )
             session.add(row)

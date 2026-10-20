@@ -159,6 +159,32 @@ class TestSQLDocumentRepository(DocumentRepositoryContract):
             ).all()
         assert [tuple(row) for row in stored] == [(10,)]
 
+    def test_create_writes_metadata_and_reads_it_back(
+        self,
+        session_factory: SessionFactory,
+        repository: SQLKnowledgeDocumentRepository,
+    ) -> None:
+        """Seed documents carry topic and difficulty for ingestion to copy."""
+        _ensure_user(session_factory, 10)
+        metadata = {"topic": "math", "difficulty": "easy", "course": "seed-pith"}
+
+        created = repository.create(
+            KnowledgeDocument(
+                filename="gcd.pdf",
+                object_key="sources/programming-in-th/codecube_002.pdf",
+                content_hash="e" * 64,
+                metadata=metadata,
+            ),
+            10,
+        )
+
+        assert created.metadata == metadata
+        assert repository.get_by_content_hash("e" * 64, 10) == created
+        with session_factory() as session:
+            stored = session.get(DocumentRow, created.id)
+        assert stored is not None
+        assert stored.metadata_ == metadata
+
     def test_content_hash_lookup_is_scoped_to_the_uploader(
         self,
         session_factory: SessionFactory,
