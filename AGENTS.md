@@ -328,7 +328,8 @@ from a hosted runner they took ten minutes, so CI runs
 `pytest -m "not postgres and not r2"`. Run
 `uv run --env-file .env python -m scripts.run_integration_tests` yourself before
 a PR that touches `database/`, `alembic/`, `tests/db/` or `tests/r2/`, and quote
-its result in the PR description. CI does not apply migrations either, so a new
+its result in the PR description. An agent that cannot reach Neon hands the run
+to พาย (see `tests/db/` above). CI does not apply migrations either, so a new
 migration is proven only by that script.
 
 With those variables unset the marked tests skip themselves, so
