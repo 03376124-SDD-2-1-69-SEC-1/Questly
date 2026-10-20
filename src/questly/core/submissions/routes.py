@@ -1,5 +1,7 @@
 """JSON API for Submissions and Runs under /api/v1 (ADR-0007 API contract)."""
 
+import csv
+import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import NoReturn
@@ -145,6 +147,66 @@ def list_submissions(
     with domain_errors():
         submissions = _service(request).submissions(actor, classroom_id, assignment_id)
     return [submission_response(submission) for submission in submissions]
+
+
+@classroom_router.get("/{classroom_id}/assignments/{assignment_id}/submissions.csv")
+def export_submissions_csv(
+    request: Request,
+    classroom_id: int,
+    assignment_id: int,
+) -> Response:
+    """Export submission history for an Instructor."""
+    with domain_errors():
+        rows = _service(request).export_submissions(
+            current_actor(request), classroom_id, assignment_id
+        )
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+
+    writer.writerow(
+        [
+            "Submission ID",
+            "Student Number",
+            "Attempt",
+            "Version",
+            "Submitted At",
+            "Status",
+            "Score",
+            "Max Score",
+            "Passed Tests",
+            "Total Tests",
+            "Late",
+        ]
+    )
+
+    for row in rows:
+        writer.writerow(
+            [
+                row.id,
+                row.student_number,
+                row.attempt,
+                row.version_number,
+                row.submitted_at.isoformat(),
+                row.status.value,
+                "" if row.score is None else row.score,
+                row.max_score,
+                row.passed_count,
+                row.total_tests,
+                row.is_late,
+            ]
+        )
+
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="classroom-{classroom_id}'
+                f'-assignment-{assignment_id}-submissions.csv"'
+            )
+        },
+    )
 
 
 @classroom_router.post("/{classroom_id}/assignments/{assignment_id}/runs")

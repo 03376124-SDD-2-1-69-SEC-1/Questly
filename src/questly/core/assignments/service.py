@@ -207,6 +207,12 @@ class AssignmentService:
             avg_score=average(scores),
         )
 
+    def export_summary(self, actor: Actor, classroom_id: int) -> InstructorSummary:
+        """Export the classroom score table as CSV; restricted to the owner."""
+        self._require_owner(actor, classroom_id)
+        numbered = self._numbered_postings(classroom_id)
+        return self._instructor_summary(actor, classroom_id, numbered)
+
     def problem(
         self, actor: Actor, classroom_id: int, assignment_id: int
     ) -> InstructorProblem | StudentProblem:

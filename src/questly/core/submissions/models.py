@@ -312,6 +312,23 @@ class InstructorResultsView:
         return sum(1 for row in self.submitted if row.counted and row.counted.is_late)
 
 
+@dataclass(frozen=True, slots=True)
+class SubmissionExportRow:
+    """A row of the instructor's submissions.csv export."""
+
+    id: int
+    student_number: str
+    attempt: int
+    version_number: int
+    submitted_at: datetime
+    status: SubmissionStatus
+    score: int | None
+    max_score: int
+    passed_count: int
+    total_tests: int
+    is_late: bool
+
+
 class SubmissionNotFoundError(LookupError):
     pass
 

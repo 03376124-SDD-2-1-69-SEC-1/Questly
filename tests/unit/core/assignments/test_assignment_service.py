@@ -413,3 +413,31 @@ def test_summaries_count_standings(world: World) -> None:
     assert isinstance(student, StudentSummary)
     assert (student.solved, student.passed, student.total) == (2, 1, 2)
     assert student.avg_score == 8
+
+
+def test_export_summary_by_owner_returns_score_table(world: World) -> None:
+    world.classrooms.join(world.pimchanok, world.sec1.join_code)
+    first = world.publish(title="Sum of a list").postings[0]
+    passed = StudentStanding(state=StudentState.PASSED, score=10)
+    world.stats.standings[(first.id, world.nattapong.user_id)] = passed
+
+    result = world.service.export_summary(world.somchai, world.sec1.id)
+
+    assert isinstance(result, InstructorSummary)
+    assert result.problem_titles == ["Sum of a list"]
+    assert len(result.score_table) == 2
+    student_row = next(
+        r for r in result.score_table if r.student_name == world.nattapong.full_name
+    )
+    assert student_row.scores == [10.0]
+    assert student_row.total == 10.0
+
+
+def test_export_summary_by_student_raises_permission_denied(world: World) -> None:
+    with pytest.raises(PermissionDeniedError):
+        world.service.export_summary(world.nattapong, world.sec1.id)
+
+
+def test_export_summary_by_outsider_raises_classroom_not_visible(world: World) -> None:
+    with pytest.raises(ClassroomNotVisibleError):
+        world.service.export_summary(world.pimchanok, world.sec1.id)
