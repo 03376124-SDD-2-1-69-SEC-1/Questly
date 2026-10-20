@@ -300,7 +300,15 @@ throwaway infrastructure:
 - `tests/db/` — mark tests `postgres`, read the DSN from the `postgres_url`
   fixture, and never from `DATABASE_URL`. `scripts/run_integration_tests.py`
   supplies `POSTGRES_TEST_URL` by creating a Neon branch per run and deleting it
-  afterwards.
+  afterwards. That is the only way to run them:
+  `uv run --env-file .env python -m scripts.run_integration_tests --only postgres`.
+  - No Docker in this project: no `docker run`, no `docker compose`, no
+    `pgvector`/`postgres` image.
+  - No local Postgres cluster for `tests/db/`: no `initdb`, `pg_ctl`, or
+    `apt install postgresql`.
+  - If you cannot reach Neon (no `.env`, or port 5432 is blocked), stop and ask
+    พาย to run the script. Do not find another way, and never put results from
+    a local database in a PR in place of the Neon result.
 - `tests/r2/` — mark tests `r2`, read the client and bucket from the
   `r2_test_bucket` fixture and a unique key from `r2_test_prefix`, and never
   from `R2_BUCKET_NAME`/`R2_ENDPOINT_URL`/etc. Reserve this marker for
