@@ -193,3 +193,17 @@ class TestSQLDocumentRepository(DocumentRepositoryContract):
 
         with pytest.raises(DocumentRepositoryError):
             broken.delete_for_owner(1, 10)
+
+    def test_database_failure_on_status_update_surfaces_as_repository_error(
+        self,
+    ) -> None:
+        """A lost connection is a repository error, not a silent False."""
+        broken = SQLKnowledgeDocumentRepository(_LostConnection)
+
+        with pytest.raises(DocumentRepositoryError):
+            broken.update_status_for_owner(
+                1,
+                10,
+                expected_status=DocumentStatus.UPLOADED,
+                new_status=DocumentStatus.INGESTING,
+            )

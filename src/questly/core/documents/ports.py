@@ -4,6 +4,7 @@ from typing import Protocol
 
 from questly.core.documents.models import (
     DocumentLibraryItem,
+    DocumentStatus,
     KnowledgeDocument,
     StoredObject,
 )
@@ -49,3 +50,12 @@ class KnowledgeDocumentRepository(Protocol):
     ) -> DocumentLibraryItem | None: ...
 
     def delete_for_owner(self, document_id: int, uploaded_by: int) -> bool: ...
+
+    def update_status_for_owner(
+        self,
+        document_id: int,
+        uploaded_by: int,
+        *,
+        expected_status: DocumentStatus,
+        new_status: DocumentStatus,
+    ) -> bool: ...

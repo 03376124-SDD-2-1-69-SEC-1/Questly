@@ -38,6 +38,10 @@ class DocumentInUseError(Exception):
     """Raised when a document is referenced or has left the uploaded state."""
 
 
+class DocumentNotRetryableError(Exception):
+    """Raised when a retry targets a document whose ingestion has not failed."""
+
+
 class DocumentDeletionFailedError(Exception):
     """Raised when deleting the document row fails after removing its object."""
 
@@ -129,6 +133,20 @@ class DocumentService:
         if current is None:
             raise KnowledgeDocumentNotFoundError
         raise DocumentInUseError
+
+    def retry(self, actor: Actor, document_id: int) -> DocumentLibraryItem:
+        """Queue a failed document for ingestion again by returning it to uploaded."""
+        self.authorize(actor)
+        moved = self._repository.update_status_for_owner(
+            document_id,
+            actor.user_id,
+            expected_status=DocumentStatus.FAILED,
+            new_status=DocumentStatus.UPLOADED,
+        )
+        item = self.get(actor, document_id)
+        if not moved:
+            raise DocumentNotRetryableError
+        return item
 
     def authorize(self, actor: Actor) -> None:
         """Reject non-Instructors before an upload body is read."""

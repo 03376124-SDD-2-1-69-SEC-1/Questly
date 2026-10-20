@@ -11,6 +11,7 @@ from questly.core.documents.service import (
     DocumentDeletionCompensationError,
     DocumentDeletionFailedError,
     DocumentInUseError,
+    DocumentNotRetryableError,
     DocumentService,
     EmptyUploadError,
     KnowledgeDocumentNotFoundError,
@@ -69,6 +70,16 @@ def _raise_in_use() -> NoReturn:
         detail={
             "code": "knowledge_document_in_use",
             "message": "Document is referenced or has already been ingested",
+        },
+    )
+
+
+def _raise_not_retryable() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "knowledge_document_not_retryable",
+            "message": "Only a document whose ingestion failed can be retried",
         },
     )
 
@@ -141,3 +152,14 @@ def delete_document(request: Request, document_id: int) -> Response:
     ):
         _raise_delete_failed()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{document_id}/retry", response_model=KnowledgeDocumentResponse)
+def retry_document(request: Request, document_id: int) -> KnowledgeDocumentResponse:
+    """Queue a failed document for ingestion again."""
+    try:
+        return _response(_service(request).retry(current_actor(request), document_id))
+    except KnowledgeDocumentNotFoundError:
+        _raise_not_found()
+    except DocumentNotRetryableError:
+        _raise_not_retryable()
