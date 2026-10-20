@@ -5,8 +5,6 @@ Two routers: `router` under /api/v1/assignments for content and Versions,
 Summary tab.
 """
 
-import csv
-import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import NoReturn
@@ -47,6 +45,7 @@ from questly.core.assignments.service import (
     VersionNotFoundError,
 )
 from questly.core.auth.current import current_actor
+from questly.core.classrooms.csv_export import csv_response
 
 router = APIRouter(prefix="/api/v1/assignments", tags=["assignments"])
 classroom_router = APIRouter(prefix="/api/v1/classrooms", tags=["assignments"])
@@ -365,26 +364,16 @@ def export_classroom_summary(request: Request, classroom_id: int) -> Response:
             current_actor(request), classroom_id
         )
 
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-
-    writer.writerow(["Student", *result.problem_titles, "Total"])
-
-    for row in result.score_table:
-        writer.writerow(
+    return csv_response(
+        f"classroom-{classroom_id}-summary.csv",
+        ["Student Number", "Student Name", *result.problem_titles, "Total"],
+        (
             [
+                "" if row.student_number is None else row.student_number,
                 row.student_name,
                 *["" if score is None else score for score in row.scores],
                 row.total,
             ]
-        )
-
-    return Response(
-        content="\ufeff" + output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="classroom-{classroom_id}-summary.csv"'
-            )
-        },
+            for row in result.score_table
+        ),
     )

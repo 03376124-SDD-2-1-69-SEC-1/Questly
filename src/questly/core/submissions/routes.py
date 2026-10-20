@@ -1,7 +1,5 @@
 """JSON API for Submissions and Runs under /api/v1 (ADR-0007 API contract)."""
 
-import csv
-import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import NoReturn
@@ -17,13 +15,16 @@ from fastapi import (
 
 from questly.core.assignments.models import TestCaseKind
 from questly.core.auth.current import current_actor
+from questly.core.classrooms.csv_export import CsvCell, bangkok_time, csv_response
 from questly.core.submissions.models import (
     ClassroomArchivedError,
     EmptyCodeError,
+    Judged,
     PostingClosedError,
     ResubmissionNotAllowedError,
     RunnerUnavailableError,
     Submission,
+    SubmissionExportRow,
     SubmissionPendingError,
     TestResult,
 )
@@ -161,52 +162,49 @@ def export_submissions_csv(
             current_actor(request), classroom_id, assignment_id
         )
 
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-
-    writer.writerow(
+    return csv_response(
+        f"classroom-{classroom_id}-assignment-{assignment_id}-submissions.csv",
         [
             "Submission ID",
             "Student Number",
+            "Student Name",
             "Attempt",
             "Version",
-            "Submitted At",
+            "Submitted At (Bangkok)",
             "Status",
             "Score",
             "Max Score",
             "Passed Tests",
             "Total Tests",
             "Late",
-        ]
+        ],
+        (_export_cells(row) for row in rows),
     )
 
-    for row in rows:
-        writer.writerow(
-            [
-                row.id,
-                row.student_number,
-                row.attempt,
-                row.version_number,
-                row.submitted_at.isoformat(),
-                row.status.value,
-                "" if row.score is None else row.score,
-                row.max_score,
-                row.passed_count,
-                row.total_tests,
-                row.is_late,
-            ]
-        )
 
-    return Response(
-        content="\ufeff" + output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="classroom-{classroom_id}'
-                f'-assignment-{assignment_id}-submissions.csv"'
-            )
-        },
-    )
+def _export_cells(row: SubmissionExportRow) -> list[CsvCell]:
+    """Score and test counts stay blank until judging has a verdict."""
+    score: CsvCell = ""
+    passed: CsvCell = ""
+    total: CsvCell = ""
+    if isinstance(row.outcome, Judged):
+        score = row.outcome.score
+        passed = row.outcome.passed_count
+        total = row.outcome.total_tests
+    return [
+        row.id,
+        row.student_number,
+        row.student_name,
+        row.attempt,
+        row.version_number,
+        bangkok_time(row.submitted_at),
+        row.status.value,
+        score,
+        row.max_score,
+        passed,
+        total,
+        row.is_late,
+    ]
 
 
 @classroom_router.post("/{classroom_id}/assignments/{assignment_id}/runs")

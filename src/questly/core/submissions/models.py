@@ -313,19 +313,37 @@ class InstructorResultsView:
 
 
 @dataclass(frozen=True, slots=True)
+class Judged:
+    """What a `done` Submission scored; all three numbers exist together."""
+
+    score: int
+    passed_count: int
+    total_tests: int
+
+
+@dataclass(frozen=True, slots=True)
+class NotJudged:
+    """A Submission with no verdict: `received`, `judging` or `failed`."""
+
+
+@dataclass(frozen=True, slots=True)
 class SubmissionExportRow:
-    """A row of the instructor's submissions.csv export."""
+    """A row of the instructor's submissions.csv export.
+
+    `student_number` is empty when the account has none (its email is not a
+    student ID); both it and `student_name` are empty once the Student is no
+    longer a Member.
+    """
 
     id: int
     student_number: str
+    student_name: str
     attempt: int
     version_number: int
     submitted_at: datetime
     status: SubmissionStatus
-    score: int | None
+    outcome: Judged | NotJudged
     max_score: int
-    passed_count: int
-    total_tests: int
     is_late: bool
 
 
