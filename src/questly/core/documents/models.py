@@ -1,6 +1,7 @@
 """Domain representation of an uploaded knowledge document."""
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 __all__ = [
@@ -43,13 +44,14 @@ class KnowledgeDocument:
 
     `id` is `None` only before the repository has persisted the document — see
     KnowledgeDocumentRepository.create(). Anything a repository returns has a
-    non-None id.
+    non-None id. `metadata` holds catalog labels such as topic and difficulty.
     """
 
     filename: str
     object_key: str
     content_hash: str
     status: DocumentStatus = DocumentStatus.UPLOADED
+    metadata: Mapping[str, str] = field(default_factory=dict)
     id: int | None = None
 
 
