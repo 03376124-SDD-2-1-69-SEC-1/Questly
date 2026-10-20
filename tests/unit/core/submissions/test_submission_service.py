@@ -825,6 +825,19 @@ def test_export_submissions_leaves_number_blank_for_an_email_without_digits(
     assert (row.student_number, row.student_name) == ("", "Visiting Student")
 
 
+def test_export_submissions_keeps_the_row_of_a_removed_member_with_blank_identity(
+    world: World,
+) -> None:
+    aid = world.publish()
+    submission = world.submit(aid)
+    world.classrooms.remove_member(world.teacher, world.room.id, world.student.user_id)
+
+    (row,) = world.service.export_submissions(world.teacher, world.room.id, aid)
+
+    assert row.id == submission.id
+    assert (row.student_number, row.student_name) == ("", "")
+
+
 def test_export_submissions_by_student_raises_permission_denied(world: World) -> None:
     aid = world.publish()
     with pytest.raises(PermissionDeniedError):
