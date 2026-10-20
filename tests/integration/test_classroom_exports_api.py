@@ -33,6 +33,8 @@ OUTSIDER_EMAIL = "outsider@kmitl.ac.th"
 
 SUMMARY_HEADER = ["Student Number", "Student Name", "Add two numbers", "Total"]
 SUBMISSIONS_HEADER = [
+    "Problem No.",
+    "Assignment",
     "Submission ID",
     "Student Number",
     "Student Name",
@@ -225,6 +227,8 @@ async def test_owner_can_export_submissions_csv() -> None:
     assert parse_csv(response.content) == [
         SUBMISSIONS_HEADER,
         [
+            "1",
+            "Add two numbers",
             str(submission_id),
             "66010001",
             "Student Nattapong",
@@ -250,11 +254,11 @@ async def test_submissions_csv_leaves_the_verdict_blank_until_judged() -> None:
 
     response = await teacher.get(campus.submissions_url)
 
-    rows = {row[0]: row for row in parse_csv(response.content)[1:]}
-    assert rows[str(pending_id)][1:3] == ["66010001", "Student Nattapong"]
-    assert rows[str(pending_id)][6:] == ["received", "", "10", "", "", "False"]
-    assert rows[str(failed_id)][1:3] == ["", "Visiting Lecturer"]
-    assert rows[str(failed_id)][6:] == ["failed", "", "10", "", "", "False"]
+    rows = {row[2]: row for row in parse_csv(response.content)[1:]}
+    assert rows[str(pending_id)][3:5] == ["66010001", "Student Nattapong"]
+    assert rows[str(pending_id)][8:] == ["received", "", "10", "", "", "False"]
+    assert rows[str(failed_id)][3:5] == ["", "Visiting Lecturer"]
+    assert rows[str(failed_id)][8:] == ["failed", "", "10", "", "", "False"]
 
 
 @pytest.mark.anyio
@@ -268,7 +272,29 @@ async def test_submissions_csv_neutralises_a_formula_student_name() -> None:
     response = await teacher.get(campus.submissions_url)
 
     (row,) = parse_csv(response.content)[1:]
-    assert row[1:3] == ["66010003", "'" + HYPERLINK_NAME]
+    assert row[3:5] == ["66010003", "'" + HYPERLINK_NAME]
+
+
+@pytest.mark.anyio
+async def test_submissions_csv_names_the_problem_and_neutralises_its_title() -> None:
+    campus = ExportCampus()
+    title = '=HYPERLINK("http://x")'
+    second_id = campus.publish(title)
+    student = await campus.client_for(STUDENT_EMAIL)
+    base = f"/api/v1/classrooms/{campus.classroom.id}/assignments/{second_id}"
+    created = await student.post(f"{base}/submissions", json={"code": GOOD_CODE})
+    assert created.status_code == 202
+    teacher = await campus.client_for(TEACHER_EMAIL)
+
+    response = await teacher.get(f"{base}/submissions.csv")
+
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="classroom-{campus.classroom.id}'
+        f'-assignment-{second_id}-submissions.csv"'
+    )
+    header, row = parse_csv(response.content)
+    assert header == SUBMISSIONS_HEADER
+    assert row[:2] == ["2", "'" + title]
 
 
 @pytest.mark.anyio

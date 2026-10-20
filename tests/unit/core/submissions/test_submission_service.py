@@ -132,11 +132,11 @@ class World:
         self.classrooms.join(self.student, self.room.join_code)
         self.classrooms.join(self.other, self.room.join_code)
 
-    def publish(self, **schedule: object) -> int:
+    def publish(self, title: str = "Numbers to words", **schedule: object) -> int:
         published = self.assignments.publish(
             self.teacher,
             AssignmentContent(
-                title="Numbers to words",
+                title=title,
                 problem_statement="Print the word.",
                 difficulty=Difficulty.EASY,
                 test_cases=TESTS,
@@ -766,6 +766,8 @@ def test_export_submissions_by_owner_lists_student_and_verdict(world: World) -> 
 
     assert rows == (
         SubmissionExportRow(
+            problem_number=1,
+            assignment_title="Numbers to words",
             id=submission.id,
             student_number="66010001",
             student_name="Nattapong Suwan",
@@ -778,6 +780,18 @@ def test_export_submissions_by_owner_lists_student_and_verdict(world: World) -> 
             is_late=False,
         ),
     )
+
+
+def test_export_submissions_names_the_problem_each_row_belongs_to(
+    world: World,
+) -> None:
+    world.publish("Warm up")
+    second = world.publish('=HYPERLINK("http://x")')
+
+    world.submit(second)
+    (row,) = world.service.export_submissions(world.teacher, world.room.id, second)
+
+    assert (row.problem_number, row.assignment_title) == (2, '=HYPERLINK("http://x")')
 
 
 def test_export_submissions_has_no_verdict_until_a_submission_is_done(

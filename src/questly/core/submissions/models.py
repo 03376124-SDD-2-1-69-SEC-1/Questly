@@ -330,11 +330,14 @@ class NotJudged:
 class SubmissionExportRow:
     """A row of the instructor's submissions.csv export.
 
+    `problem_number` is the Posting's number in the Classroom, as in T-01.
     `student_number` is empty when the account has none (its email is not a
     student ID); both it and `student_name` are empty once the Student is no
     longer a Member.
     """
 
+    problem_number: int
+    assignment_title: str
     id: int
     student_number: str
     student_name: str

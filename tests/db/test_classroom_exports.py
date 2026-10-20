@@ -152,13 +152,16 @@ def stored_submissions(world: ExportWorld) -> list[dict[str, object]]:
     with world.session_factory() as session:
         rows = session.execute(
             text(
-                "SELECT s.id, u.email, u.full_name, s.attempt, s.version_number, "
-                "s.submitted_at, s.status, s.score, s.max_score, s.is_late, "
+                "SELECT s.id, u.email, u.full_name, a.title, s.attempt, "
+                "s.version_number, s.submitted_at, s.status, s.score, s.max_score, "
+                "s.is_late, "
                 "(SELECT count(*) FROM core.submission_test_results r "
                 " WHERE r.submission_id = s.id AND r.verdict = 'passed') AS passed, "
                 "(SELECT count(*) FROM core.submission_test_results r "
                 " WHERE r.submission_id = s.id) AS total "
                 "FROM core.submissions s JOIN core.users u ON u.id = s.student_id "
+                "JOIN core.classroom_assignments p ON p.id = s.posting_id "
+                "JOIN core.assignments a ON a.id = p.assignment_id "
                 "ORDER BY s.id"
             )
         ).mappings()
@@ -251,6 +254,8 @@ async def test_submissions_csv_matches_the_database(
     assert response.status_code == 200
     expected = [
         [
+            "Problem No.",
+            "Assignment",
             "Submission ID",
             "Student Number",
             "Student Name",
@@ -271,6 +276,8 @@ async def test_submissions_csv_matches_the_database(
         assert isinstance(submitted_at, datetime)
         expected.append(
             [
+                "1",
+                formula_safe(str(row["title"])),
                 str(row["id"]),
                 student_number(str(row["email"])),
                 formula_safe(str(row["full_name"])),
@@ -288,10 +295,11 @@ async def test_submissions_csv_matches_the_database(
             ]
         )
     assert parse_csv(response.content) == expected
-    assert expected[1][1:3] == ["66010001", STUDENT_NAME]
-    assert expected[1][7:] == ["10", "10", "1", "1", "False"]
-    assert expected[2][1:3] == ["66010003", "'" + FORMULA_NAME]
-    assert expected[2][6:] == ["received", "", "10", "", "", "False"]
+    assert expected[1][:2] == ["1", "Add two numbers"]
+    assert expected[1][3:5] == ["66010001", STUDENT_NAME]
+    assert expected[1][9:] == ["10", "10", "1", "1", "False"]
+    assert expected[2][3:5] == ["66010003", "'" + FORMULA_NAME]
+    assert expected[2][8:] == ["received", "", "10", "", "", "False"]
 
 
 @pytest.mark.anyio

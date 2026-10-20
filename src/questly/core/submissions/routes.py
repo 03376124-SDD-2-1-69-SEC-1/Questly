@@ -165,6 +165,8 @@ def export_submissions_csv(
     return csv_response(
         f"classroom-{classroom_id}-assignment-{assignment_id}-submissions.csv",
         [
+            "Problem No.",
+            "Assignment",
             "Submission ID",
             "Student Number",
             "Student Name",
@@ -192,6 +194,8 @@ def _export_cells(row: SubmissionExportRow) -> list[CsvCell]:
         passed = row.outcome.passed_count
         total = row.outcome.total_tests
     return [
+        row.problem_number,
+        row.assignment_title,
         row.id,
         row.student_number,
         row.student_name,
