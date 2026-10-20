@@ -753,3 +753,34 @@ def test_average_rounds_half_up_not_to_even(scores: list[int], expected: float) 
     )
 
     assert stats.posting_summary(1).avg_score == expected
+
+
+def test_export_submissions_by_owner_derives_kmitl_student_id(world: World) -> None:
+    aid = world.publish()
+    submission = world.submit(aid)
+
+    rows = world.service.export_submissions(world.teacher, world.room.id, aid)
+
+    assert len(rows) == 1
+    assert rows[0].id == submission.id
+    assert rows[0].student_number == "66010001"
+    assert rows[0].attempt == 1
+    assert rows[0].score == 10
+    assert rows[0].max_score == 10
+    assert rows[0].passed_count == 4
+    assert rows[0].total_tests == 4
+    assert rows[0].is_late is False
+
+
+def test_export_submissions_by_student_raises_permission_denied(world: World) -> None:
+    aid = world.publish()
+    with pytest.raises(PermissionDeniedError):
+        world.service.export_submissions(world.student, world.room.id, aid)
+
+
+def test_export_submissions_by_outsider_raises_classroom_not_visible(
+    world: World,
+) -> None:
+    aid = world.publish()
+    with pytest.raises(ClassroomNotVisibleError):
+        world.service.export_submissions(world.outsider, world.room.id, aid)

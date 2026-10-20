@@ -156,21 +156,9 @@ def export_submissions_csv(
     assignment_id: int,
 ) -> Response:
     """Export submission history for an Instructor."""
-    actor = current_actor(request)
-
     with domain_errors():
-        submissions = _service(request).submissions(actor, classroom_id, assignment_id)
-
-    # Students may view their own submission history but cannot export
-    # the class-wide submission report.
-    role = getattr(actor, "role", None)
-    role_value = getattr(role, "value", role)
-
-    if role_value != "instructor":
-        _fail(
-            status.HTTP_403_FORBIDDEN,
-            "permission_denied",
-            "Instructor access required",
+        rows = _service(request).export_submissions(
+            current_actor(request), classroom_id, assignment_id
         )
 
     output = io.StringIO(newline="")
@@ -179,7 +167,7 @@ def export_submissions_csv(
     writer.writerow(
         [
             "Submission ID",
-            "Student ID",
+            "Student Number",
             "Attempt",
             "Version",
             "Submitted At",
@@ -192,20 +180,20 @@ def export_submissions_csv(
         ]
     )
 
-    for submission in submissions:
+    for row in rows:
         writer.writerow(
             [
-                submission.id,
-                submission.student_id,
-                submission.attempt,
-                submission.version_number,
-                submission.submitted_at.isoformat(),
-                submission.status.value,
-                "" if submission.score is None else submission.score,
-                submission.max_score,
-                submission.passed_count,
-                len(submission.results),
-                submission.is_late,
+                row.id,
+                row.student_number,
+                row.attempt,
+                row.version_number,
+                row.submitted_at.isoformat(),
+                row.status.value,
+                "" if row.score is None else row.score,
+                row.max_score,
+                row.passed_count,
+                row.total_tests,
+                row.is_late,
             ]
         )
 

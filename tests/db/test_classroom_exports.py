@@ -28,7 +28,7 @@ pytestmark = pytest.mark.postgres
 
 PASSWORD = "correct horse battery"
 INSTRUCTOR_EMAIL = "exports.teacher@example.com"
-STUDENT_EMAIL = "exports.student@example.com"
+STUDENT_EMAIL = "66010001@kmitl.ac.th"
 OUTSIDER_EMAIL = "exports.outsider@example.com"
 
 
@@ -175,9 +175,11 @@ async def test_instructor_can_export_submission_history(
     response = await teacher.get(export_world.submissions_url)
 
     assert response.status_code == 200
-    assert "Submission ID" in response.content.decode("utf-8-sig")
-    assert "Student ID" in response.content.decode("utf-8-sig")
-    assert str(submission_id) in response.content.decode("utf-8-sig")
+    csv_text = response.content.decode("utf-8-sig")
+    assert "Submission ID" in csv_text
+    assert "Student ID" in csv_text
+    assert str(submission_id) in csv_text
+    assert "66010001" in csv_text
 
 
 @pytest.mark.anyio

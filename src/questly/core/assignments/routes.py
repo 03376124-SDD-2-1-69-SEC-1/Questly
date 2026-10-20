@@ -361,17 +361,8 @@ def summary(request: Request, classroom_id: int) -> SummaryResponse:
 def export_classroom_summary(request: Request, classroom_id: int) -> Response:
     """Export the Instructor's classroom score table as CSV."""
     with domain_errors():
-        result = assignment_service(request).summary(
+        result = assignment_service(request).export_summary(
             current_actor(request), classroom_id
-        )
-
-    # The summary use case also serves Students.
-    # CSV export is restricted to the Instructor.
-    if not isinstance(result, InstructorSummary):
-        _fail(
-            status.HTTP_403_FORBIDDEN,
-            "permission_denied",
-            "Instructor access required",
         )
 
     output = io.StringIO(newline="")

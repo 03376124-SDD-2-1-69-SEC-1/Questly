@@ -35,6 +35,7 @@ from questly.core.submissions.models import (
     StudentResult,
     StudentSolveView,
     Submission,
+    SubmissionExportRow,
     SubmissionNotFoundError,
     SubmissionPendingError,
     SubmissionStatus,
@@ -168,6 +169,35 @@ class SubmissionService:
         if isinstance(problem, InstructorProblem):
             return self._repository.list_for_posting(problem.posting.id)
         return self._repository.list_for_student(problem.posting.id, actor.user_id)
+
+    def export_submissions(
+        self, actor: Actor, classroom_id: int, assignment_id: int
+    ) -> tuple[SubmissionExportRow, ...]:
+        """Export all submissions on a Posting; restricted to the Classroom owner."""
+        problem = self._problems.problem(actor, classroom_id, assignment_id)
+        if not isinstance(problem, InstructorProblem):
+            raise PermissionDeniedError
+        roster = {
+            m.user_id: (m.student_number if m.student_number else "-")
+            for m in self._roster.members(actor, classroom_id)
+        }
+        submissions = self._repository.list_for_posting(problem.posting.id)
+        return tuple(
+            SubmissionExportRow(
+                id=s.id,
+                student_number=roster.get(s.student_id, "-"),
+                attempt=s.attempt,
+                version_number=s.version_number,
+                submitted_at=s.submitted_at,
+                status=s.status,
+                score=s.score,
+                max_score=s.max_score,
+                passed_count=s.passed_count,
+                total_tests=len(s.results),
+                is_late=s.is_late,
+            )
+            for s in submissions
+        )
 
     def get(self, actor: Actor, submission_id: int) -> Submission:
         """A Student's own Submission, or any on the Instructor's Posting."""
