@@ -61,6 +61,25 @@ class DocumentRepositoryContract:
         assert repository.delete_for_owner(unused.id, 10)
         assert repository.get_for_owner(unused.id, 10) is None
 
+    def test_delete_refuses_a_document_that_left_the_uploaded_state(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "ingesting.pdf")
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.INGESTING,
+        )
+
+        assert not repository.delete_for_owner(document.id, 10)
+
+        kept = repository.get_for_owner(document.id, 10)
+        assert kept is not None
+        assert kept.document.status is DocumentStatus.INGESTING
+
     def test_update_status_requires_ownership_and_expected_status(
         self,
         repository: KnowledgeDocumentRepository,
