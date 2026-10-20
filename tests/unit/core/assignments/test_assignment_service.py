@@ -12,6 +12,7 @@ from questly.core.assignments.models import (
     JudgingSettings,
     PostingSummary,
     Schedule,
+    ScoreRow,
     StudentProblemList,
     StudentStanding,
     StudentState,
@@ -425,12 +426,15 @@ def test_export_summary_by_owner_returns_score_table(world: World) -> None:
 
     assert isinstance(result, InstructorSummary)
     assert result.problem_titles == ["Sum of a list"]
-    assert len(result.score_table) == 2
-    student_row = next(
-        r for r in result.score_table if r.student_name == world.nattapong.full_name
-    )
-    assert student_row.scores == [10.0]
-    assert student_row.total == 10.0
+    assert result.score_table == [
+        ScoreRow(
+            student_name="Nattapong Suwan", student_number="66010001", scores=[10.0]
+        ),
+        ScoreRow(
+            student_name="Pimchanok Wong", student_number="66010002", scores=[None]
+        ),
+    ]
+    assert [row.total for row in result.score_table] == [10.0, 0]
 
 
 def test_export_summary_by_student_raises_permission_denied(world: World) -> None:
