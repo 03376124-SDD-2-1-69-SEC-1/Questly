@@ -7,6 +7,9 @@
     uv run --env-file .env python scripts/seed_pith_to_r2.py --dry-run
     # อัปจริง
     uv run --env-file .env python scripts/seed_pith_to_r2.py
+    # ลงทะเบียนทั้ง 100 ไฟล์ใน core.knowledge_documents ในชื่อ instructor คนนี้
+    uv run --env-file .env python scripts/seed_pith_to_r2.py \
+        --register-db --owner-email <email>
 
 - ใช้ตัวแปร R2_* ชุดเดียวกับแอป (R2_ENDPOINT_URL, R2_BUCKET_NAME,
   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)
@@ -14,6 +17,9 @@
 - object ที่มีอยู่แล้วบน R2 จะข้าม — รันซ้ำได้ปลอดภัย และสคริปต์นี้ไม่ลบอะไรเลย
 - ผลลัพธ์ data/pith/uploaded.csv มี r2_key + sha256 + topic/difficulty
   ไว้ insert core.knowledge_documents ตอนทำ ingest
+- --register-db อ่าน sha256 จาก data/pith/uploaded.csv; ข้อไหนไม่มีในไฟล์
+  จะโหลด object จาก R2 มา hash (อ่านอย่างเดียว ไม่เขียน R2) แถวที่
+  content_hash ซ้ำของ owner คนเดียวกันจะข้าม — รันซ้ำไม่เกิดแถวซ้ำ
 """
 
 from __future__ import annotations
@@ -24,12 +30,18 @@ import os
 import sys
 import time
 import urllib.request
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
-
+from questly.config import MissingConfigurationError, get_settings
+from questly.core.auth.models import Role
+from questly.core.documents.models import KnowledgeDocument
+from questly.core.documents.ports import KnowledgeDocumentRepository
+from questly.database.core.auth_repository import SQLAuthRepository
+from questly.database.core.knowledge_document_repository import (
+    SQLKnowledgeDocumentRepository,
+)
+from questly.database.session import build_engine, build_session_factory
 from questly.database.storage.safety import assert_valid_r2_endpoint
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +54,7 @@ REQUIRED_VARS = (
     "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY",
 )
+SEED_COURSE = "seed-pith"
 
 
 def fetch_pdf(url: str, dest: Path) -> bytes:
@@ -58,6 +71,8 @@ def fetch_pdf(url: str, dest: Path) -> bytes:
 
 
 def object_exists(client, bucket: str, key: str) -> bool:
+    from botocore.exceptions import ClientError
+
     try:
         client.head_object(Bucket=bucket, Key=key)
         return True
@@ -67,8 +82,8 @@ def object_exists(client, bucket: str, key: str) -> bool:
         raise
 
 
-def main() -> None:
-    dry_run = "--dry-run" in sys.argv
+def connect_r2():
+    """Return (client, bucket), or exit when the R2_* variables are unusable."""
     missing = [v for v in REQUIRED_VARS if not os.environ.get(v)]
     if missing:
         sys.exit(f"missing env: {', '.join(missing)} (ลืม --env-file .env หรือเปล่า)")
@@ -76,10 +91,9 @@ def main() -> None:
         assert_valid_r2_endpoint(os.environ["R2_ENDPOINT_URL"])
     except ValueError as error:
         sys.exit(str(error))
-    bucket = os.environ["R2_BUCKET_NAME"]
 
-    rows = list(csv.DictReader(MANIFEST.open(encoding="utf-8-sig")))
-    print(f"bucket={bucket}  files={len(rows)}  dry_run={dry_run}")
+    import boto3
+    from botocore.config import Config
 
     client = boto3.client(
         "s3",
@@ -89,6 +103,88 @@ def main() -> None:
         config=Config(signature_version="s3v4"),
         region_name="auto",
     )
+    return client, os.environ["R2_BUCKET_NAME"]
+
+
+def register_seed(
+    rows: Iterable[Mapping[str, str]],
+    repository: KnowledgeDocumentRepository,
+    owner_id: int,
+) -> tuple[int, int]:
+    """Insert one document per manifest row; return (created, skipped)."""
+    created = skipped = 0
+    for row in rows:
+        if repository.get_by_content_hash(row["sha256"], owner_id) is not None:
+            skipped += 1
+            continue
+        repository.create(
+            KnowledgeDocument(
+                filename=row["title"],
+                object_key=row["r2_key"],
+                content_hash=row["sha256"],
+                metadata={
+                    "topic": row["topic"],
+                    "difficulty": row["difficulty"],
+                    "course": SEED_COURSE,
+                    "task_id": row["task_id"],
+                },
+            ),
+            owner_id,
+        )
+        created += 1
+    return created, skipped
+
+
+def with_hashes(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Attach each row's sha256 from uploaded.csv, else from the R2 object."""
+    known: dict[str, str] = {}
+    if OUT_CSV.exists():
+        with OUT_CSV.open(encoding="utf-8-sig") as f:
+            known = {r["task_id"]: r["sha256"] for r in csv.DictReader(f)}
+    missing = [r for r in rows if r["task_id"] not in known]
+    if missing:
+        client, bucket = connect_r2()
+        for r in missing:
+            body = client.get_object(Bucket=bucket, Key=r["r2_key"])["Body"].read()
+            known[r["task_id"]] = hashlib.sha256(body).hexdigest()
+    return [{**r, "sha256": known[r["task_id"]]} for r in rows]
+
+
+def register_main() -> None:
+    if "--dry-run" in sys.argv:
+        sys.exit("--register-db ไม่มีโหมด --dry-run")
+    try:
+        email = sys.argv[sys.argv.index("--owner-email") + 1]
+    except (ValueError, IndexError):
+        sys.exit("--register-db ต้องมี --owner-email <email>")
+    try:
+        settings = get_settings()
+    except MissingConfigurationError as error:
+        sys.exit(str(error))
+    session_factory = build_session_factory(build_engine(settings))
+
+    owner = SQLAuthRepository(session_factory).find_user_by_email(email)
+    if owner is None:
+        sys.exit(f"ไม่พบ user {email} ใน core.users")
+    if owner.role is not Role.INSTRUCTOR:
+        sys.exit(f"{email} เป็น {owner.role.value} ไม่ใช่ instructor")
+
+    rows = with_hashes(list(csv.DictReader(MANIFEST.open(encoding="utf-8-sig"))))
+    created, skipped = register_seed(
+        rows, SQLKnowledgeDocumentRepository(session_factory), owner.id
+    )
+    print(f"owner={email}  created={created}  skipped={skipped}")
+
+
+def main() -> None:
+    if "--register-db" in sys.argv:
+        register_main()
+        return
+    dry_run = "--dry-run" in sys.argv
+    client, bucket = connect_r2()
+
+    rows = list(csv.DictReader(MANIFEST.open(encoding="utf-8-sig")))
+    print(f"bucket={bucket}  files={len(rows)}  dry_run={dry_run}")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     uploaded = skipped = 0
