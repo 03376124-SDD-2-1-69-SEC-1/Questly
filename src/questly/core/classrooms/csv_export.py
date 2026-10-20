@@ -15,6 +15,9 @@ from fastapi import Response
 
 CSV_ZONE = ZoneInfo("Asia/Bangkok")
 
+# Spelled as an escape: a literal BOM in the source is invisible.
+BOM = "\ufeff"
+
 # A spreadsheet reads a text cell starting with one of these as a formula.
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -51,7 +54,7 @@ def csv_response(
             [csv_safe(cell) if isinstance(cell, str) else cell for cell in row]
         )
     return Response(
-        content="﻿" + output.getvalue(),
+        content=BOM + output.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
