@@ -124,9 +124,7 @@ async def test_t06_upload_and_delete_forms_require_csrf(world: World) -> None:
     client = await _client(world)
     file = ("lecture.pdf", b"%PDF-1.4 fixture", "application/pdf")
 
-    missing_csrf = await client.post(
-        "/documents/upload", files={"file": file}
-    )
+    missing_csrf = await client.post("/documents/upload", files={"file": file})
     assert missing_csrf.status_code == 403
 
     token = await csrf_token(client, "/documents")

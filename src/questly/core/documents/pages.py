@@ -81,9 +81,7 @@ def _see_other(url: str) -> RedirectResponse:
 
 
 @router.get("/documents", response_class=HTMLResponse)
-def documents_page(
-    request: Request, notice: str = "", error: str = ""
-) -> HTMLResponse:
+def documents_page(request: Request, notice: str = "", error: str = "") -> HTMLResponse:
     actor = current_actor(request)
     return _page(request, actor, notice=notice, error=error)
 
