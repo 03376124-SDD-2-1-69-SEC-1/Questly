@@ -57,7 +57,7 @@ async def test_admin_settings_needs_a_login() -> None:
 
 
 @pytest.mark.anyio
-async def test_instructor_pages_do_not_link_to_documents_yet() -> None:
+async def test_instructor_pages_link_to_the_documents_library() -> None:
     client = await _client(_app(), TEACHER)
     created = await post_form(
         client,
@@ -74,5 +74,7 @@ async def test_instructor_pages_do_not_link_to_documents_yet() -> None:
 
     for page in (await client.get("/classes"), classroom):
         assert page.status_code == 200
-        assert 'href="/documents"' not in page.text
-    assert (await client.get("/documents")).status_code == 404
+        assert 'href="/documents"' in page.text
+    documents = await client.get("/documents")
+    assert documents.status_code == 200
+    assert 'data-page="T-06"' in documents.text

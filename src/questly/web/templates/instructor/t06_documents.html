@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_components/forms.html" import button, csrf_field with context %}
+{% from "_components/ui.html" import alert, badge, empty_state, page_header %}
+{% block head %}{% if has_refresh_state %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block title %}My documents · Questly{% endblock %}
+{% block content %}
+<section data-page="T-06">
+  {{ page_header("My documents", "Manage the documents used to create problems.") }}
+  {% if notice %}
+    {% call alert(tone="ok", state="T-06-notice") %}{{ notice }}{% endcall %}
+  {% endif %}
+  {% if error %}
+    {% call alert(tone="danger", state="T-06-error") %}{{ error }}{% endcall %}
+  {% endif %}
+
+  <form method="post" action="/documents/upload" enctype="multipart/form-data" class="card mt-5 flex flex-col gap-4 sm:flex-row sm:items-end">
+    {{ csrf_field() }}
+    <div class="field min-w-0 flex-1">
+      <label class="label" for="document-file">Upload a PDF</label>
+      <input class="input" id="document-file" name="file" type="file" accept=".pdf,application/pdf" required data-document-file>
+      <small class="hint" aria-live="polite" data-document-filename>No file selected</small>
+    </div>
+    {{ button("Upload document", variant="primary") }}
+  </form>
+
+  {% if documents %}
+  <div class="mt-6 flex flex-col gap-3">
+    <h2 class="h2">Your library · {{ documents | length }}</h2>
+    {% for item in documents %}
+      {% set document = item.document %}
+      {% set state = document.status.value %}
+      <article class="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" data-document-id="{{ document.id }}" data-state="{{ state }}">
+        <div class="min-w-0">
+          <h3 class="font-semibold [overflow-wrap:anywhere]">{{ document.filename }}</h3>
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-xxs">
+            {% set tones = {"uploaded": "info", "ingesting": "warn", "ready": "ok", "failed": "danger"} %}
+            {{ badge(status_labels[document.status], tone=tones[state]) }}
+            {% if state == "ingesting" %}
+              <span>Processing — this page refreshes automatically.</span>
+            {% elif state == "failed" %}
+              <span>Processing failed. The document is not available for problem generation.</span>
+            {% elif item.used_in %}
+              <span>Used in {{ item.used_in }} saved draft{% if item.used_in != 1 %}s{% endif %}</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if state == "uploaded" and not item.used_in %}
+        <form method="post" action="/documents/{{ document.id }}/delete" class="shrink-0">
+          {{ csrf_field() }}
+          {{ button("Delete", variant="danger", size="sm") }}
+        </form>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+  {% else %}
+    {{ empty_state("No documents yet", "Upload your lecture notes to use them as sources for AI-generated problems.", art="PDF", state="T-06a") }}
+  {% endif %}
+</section>
+<script>
+  const filePicker = document.querySelector("[data-document-file]");
+  const fileName = document.querySelector("[data-document-filename]");
+  if (filePicker && fileName) {
+    filePicker.addEventListener("change", () => {
+      fileName.textContent = filePicker.files && filePicker.files.length
+        ? filePicker.files[0].name
+        : "No file selected";
+    });
+  }
+</script>
+{% endblock %}

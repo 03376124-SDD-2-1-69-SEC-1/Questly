@@ -66,6 +66,7 @@ from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.classrooms.routes import router as classroom_router
 from questly.core.classrooms.service import ClassroomService
 from questly.core.classrooms.stats import ComputedClassroomStats
+from questly.core.documents.pages import router as document_page_router
 from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
 from questly.core.documents.routes import router as document_router
 from questly.core.documents.service import DocumentService
@@ -432,6 +433,7 @@ def create_app(
     application.include_router(draft_router)
     application.include_router(draft_classroom_router)
     application.include_router(generation_page_router)
+    application.include_router(document_page_router)
     application.include_router(document_router)
     application.include_router(notification_router)
     application.include_router(notification_page_router)
