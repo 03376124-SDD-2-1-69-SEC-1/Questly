@@ -147,7 +147,13 @@ R2_ENDPOINT_URL=
 R2_BUCKET_NAME=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
+BASE_URL=https://questly.example.com
 ```
+
+Set `BASE_URL` to the app's canonical public origin (without a trailing slash).
+Verification emails use this value to build `{BASE_URL}/verify?token=...`;
+the link is never derived from the incoming request's `Host` header. The
+development default is `http://localhost:8000`.
 
 Set `OPENROUTER_API_KEY` to call OpenRouter for generation and embeddings
 (ADR-0009); leave it empty to run on the stub generation client.

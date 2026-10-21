@@ -144,7 +144,13 @@ R2_ENDPOINT_URL=
 R2_BUCKET_NAME=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
+BASE_URL=https://questly.example.com
 ```
+
+ตั้ง `BASE_URL` เป็น origin สาธารณะหลักของแอป (ไม่ต้องมี `/` ปิดท้าย)
+ลิงก์ยืนยันในอีเมลจะใช้ค่านี้สร้างเป็น `{BASE_URL}/verify?token=...`
+โดยไม่อ่าน `Host` header จาก request; ค่าเริ่มต้นสำหรับ development คือ
+`http://localhost:8000`
 
 กำหนด `OPENROUTER_API_KEY` เพื่อเรียก OpenRouter สำหรับ generation และ embedding
 (ADR-0009) ถ้าเว้นว่างแอปจะใช้ stub generation client แทน ส่วน `GENERATION_MODEL`

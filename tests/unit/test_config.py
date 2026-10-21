@@ -72,7 +72,9 @@ def test_judge0_url_and_token_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
 
-def test_base_url_defaults_to_localhost() -> None:
+def test_base_url_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BASE_URL", raising=False)
+
     assert config.get_settings().base_url == "http://localhost:8000"
 
 
