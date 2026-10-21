@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_components/forms.html" import button, csrf_field with context %}
+{% from "_components/forms.html" import button, field, csrf_field with context %}
 {% from "_components/ui.html" import alert, badge, empty_state, page_header %}
 {% block head %}{% if has_refresh_state %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block title %}My documents · Questly{% endblock %}
@@ -17,7 +17,7 @@
     {{ csrf_field() }}
     <div class="field min-w-0 flex-1">
       <label class="label" for="document-file">Upload a PDF</label>
-      <input class="input" id="document-file" name="file" type="file" accept=".pdf,application/pdf" required data-document-file>
+      {{ field("file", "Upload a PDF", type="file", id="document-file", input_class="", accept=".pdf,application/pdf", required=true, **{"data-document-file": ""}) }}
       <small class="hint" aria-live="polite" data-document-filename>No file selected</small>
     </div>
     {{ button("Upload document", variant="primary") }}
