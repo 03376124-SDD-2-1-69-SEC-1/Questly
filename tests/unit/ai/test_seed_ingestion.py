@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
+from scripts.ingest_seed import load_manifest
 
 from questly.ai.ingestion.models import (
     DocumentExtraction,
@@ -181,3 +183,30 @@ def test_preflight_rejects_preexisting_upload_with_different_bytes() -> None:
 
     with pytest.raises(SeedPreflightError, match="object differs"):
         prepare_seed((item,), owner_id=6, documents=repository, storage=storage)
+
+
+def _write_manifest(path: Path, *, duplicate: bool = False) -> None:
+    rows = ["task_id,r2_key,topic,difficulty"]
+    for index in range(100):
+        task_id = "task-0" if duplicate and index == 99 else f"task-{index}"
+        rows.append(f"{task_id},sources/programming-in-th/{task_id}.pdf,arrays,easy")
+    path.write_text("\ufeff" + "\n".join(rows), encoding="utf-8")
+
+
+def test_manifest_loads_exactly_100_unique_seed_items(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.csv"
+    _write_manifest(manifest)
+
+    items = load_manifest(manifest)
+
+    assert len(items) == 100
+    assert items[0].task_id == "task-0"
+    assert items[-1].r2_key == "sources/programming-in-th/task-99.pdf"
+
+
+def test_manifest_rejects_duplicate_task_ids(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.csv"
+    _write_manifest(manifest, duplicate=True)
+
+    with pytest.raises(SeedPreflightError, match="duplicate task IDs"):
+        load_manifest(manifest)
