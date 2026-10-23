@@ -288,6 +288,19 @@ lives outside `src/` because fakes may not ship in the package. When a slice
 lands, extend `DemoSeed` so its pages have data. `fastapi dev` wires the real
 SQL adapters, so it reads and writes the database in `.env`.
 
+**UI check** (`playwright/ui_walk.py`, OPS-40): after changing a template or
+`app.css`, start demo mode and run
+`uv run --with playwright python -I playwright/ui_walk.py <page paths>` (add
+`--upload-pdf` for T-06). It screenshots each page at 1280px and 390px and
+records a video into `playwright/out/` (git-ignored). Look at the screenshots
+yourself before saying a UI change is done, and attach the desktop and mobile
+shots of every changed page to the PR. Usage and options: `playwright/README.md`.
+- Playwright is not a dependency: always `uv run --with playwright`, never
+  add it to `pyproject.toml`.
+- If you start the demo server in the background for this, stop it when the
+  walk ends.
+- The no-JavaScript rule covers templates only; this Python script is fine.
+
 `tests/unit/` domain + service · `tests/integration/` HTTP via ASGI transport ·
 `tests/architecture/` import direction and the no-JavaScript rule ·
 `tests/db/` database adapters against a real PostgreSQL · `tests/r2/` object
