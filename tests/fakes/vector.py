@@ -41,6 +41,12 @@ class FakeVectorRepository:
             if chunk.source_id != source_id
         }
 
+    def chunk_ids_for_source(self, source_id: int) -> set[int]:
+        """Inspect stored chunks for adapter-contract tests."""
+        return {
+            chunk.id for chunk in self._chunks.values() if chunk.source_id == source_id
+        }
+
     def create_source_with_chunks(
         self,
         source: NewKnowledgeSource,
