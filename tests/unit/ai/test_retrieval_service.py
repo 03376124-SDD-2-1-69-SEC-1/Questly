@@ -76,6 +76,20 @@ def test_fewer_than_three_matches_drop_only_difficulty_once() -> None:
     ]
 
 
+def test_fallback_preserves_selected_document_ids() -> None:
+    repository = RecordingRepository([], [_match(1)])
+    filters = RetrievalFilters(difficulty="hard", core_document_ids=(7, 9))
+
+    RetrievalService(repository).retrieve(
+        VECTOR, embedding_model=MODEL, top_k=2, filters=filters
+    )
+
+    assert repository.calls == [
+        (3, filters),
+        (2, RetrievalFilters(core_document_ids=(7, 9))),
+    ]
+
+
 def test_without_difficulty_never_falls_back() -> None:
     repository = RecordingRepository([], [_match(1)])
     filters = RetrievalFilters(topic="graphs")
@@ -102,6 +116,10 @@ def test_without_difficulty_never_falls_back() -> None:
         (VECTOR, MODEL, 3, RetrievalFilters(topic=" ")),
         (VECTOR, MODEL, 3, RetrievalFilters(topic=" graphs ")),
         (VECTOR, MODEL, 3, RetrievalFilters(difficulty="")),
+        (VECTOR, MODEL, 3, RetrievalFilters(core_document_ids=())),
+        (VECTOR, MODEL, 3, RetrievalFilters(core_document_ids=(0,))),
+        (VECTOR, MODEL, 3, RetrievalFilters(core_document_ids=(1, 1))),
+        (VECTOR, MODEL, 3, RetrievalFilters(core_document_ids=(True,))),
     ],
 )
 def test_invalid_input_does_not_query_repository(
