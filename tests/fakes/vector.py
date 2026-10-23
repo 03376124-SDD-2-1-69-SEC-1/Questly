@@ -28,6 +28,19 @@ class FakeVectorRepository:
         self._next_source_id = 1
         self._next_chunk_id = 1
 
+    def delete_source_by_core_document_id(self, core_document_id: int) -> None:
+        """Remove a source and all its chunks; ignore unknown documents."""
+        source_id = self._source_ids_by_core_document.get(core_document_id)
+        if source_id is None:
+            return
+        del self._sources[source_id]
+        del self._source_ids_by_core_document[core_document_id]
+        self._chunks = {
+            chunk_id: chunk
+            for chunk_id, chunk in self._chunks.items()
+            if chunk.source_id != source_id
+        }
+
     def create_source_with_chunks(
         self,
         source: NewKnowledgeSource,
