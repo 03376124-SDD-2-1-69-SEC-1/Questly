@@ -312,6 +312,44 @@ class InstructorResultsView:
         return sum(1 for row in self.submitted if row.counted and row.counted.is_late)
 
 
+@dataclass(frozen=True, slots=True)
+class Judged:
+    """What a `done` Submission scored; all three numbers exist together."""
+
+    score: int
+    passed_count: int
+    total_tests: int
+
+
+@dataclass(frozen=True, slots=True)
+class NotJudged:
+    """A Submission with no verdict: `received`, `judging` or `failed`."""
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionExportRow:
+    """A row of the instructor's submissions.csv export.
+
+    `problem_number` is the Posting's number in the Classroom, as in T-01.
+    `student_number` is empty when the account has none (its email is not a
+    student ID); both it and `student_name` are empty once the Student is no
+    longer a Member.
+    """
+
+    problem_number: int
+    assignment_title: str
+    id: int
+    student_number: str
+    student_name: str
+    attempt: int
+    version_number: int
+    submitted_at: datetime
+    status: SubmissionStatus
+    outcome: Judged | NotJudged
+    max_score: int
+    is_late: bool
+
+
 class SubmissionNotFoundError(LookupError):
     pass
 

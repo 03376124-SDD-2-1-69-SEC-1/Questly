@@ -15,13 +15,16 @@ from fastapi import (
 
 from questly.core.assignments.models import TestCaseKind
 from questly.core.auth.current import current_actor
+from questly.core.classrooms.csv_export import CsvCell, bangkok_time, csv_response
 from questly.core.submissions.models import (
     ClassroomArchivedError,
     EmptyCodeError,
+    Judged,
     PostingClosedError,
     ResubmissionNotAllowedError,
     RunnerUnavailableError,
     Submission,
+    SubmissionExportRow,
     SubmissionPendingError,
     TestResult,
 )
@@ -145,6 +148,67 @@ def list_submissions(
     with domain_errors():
         submissions = _service(request).submissions(actor, classroom_id, assignment_id)
     return [submission_response(submission) for submission in submissions]
+
+
+@classroom_router.get("/{classroom_id}/assignments/{assignment_id}/submissions.csv")
+def export_submissions_csv(
+    request: Request,
+    classroom_id: int,
+    assignment_id: int,
+) -> Response:
+    """Export submission history for an Instructor."""
+    with domain_errors():
+        rows = _service(request).export_submissions(
+            current_actor(request), classroom_id, assignment_id
+        )
+
+    return csv_response(
+        f"classroom-{classroom_id}-assignment-{assignment_id}-submissions.csv",
+        [
+            "Problem No.",
+            "Assignment",
+            "Submission ID",
+            "Student Number",
+            "Student Name",
+            "Attempt",
+            "Version",
+            "Submitted At (Bangkok)",
+            "Status",
+            "Score",
+            "Max Score",
+            "Passed Tests",
+            "Total Tests",
+            "Late",
+        ],
+        (_export_cells(row) for row in rows),
+    )
+
+
+def _export_cells(row: SubmissionExportRow) -> list[CsvCell]:
+    """Score and test counts stay blank until judging has a verdict."""
+    score: CsvCell = ""
+    passed: CsvCell = ""
+    total: CsvCell = ""
+    if isinstance(row.outcome, Judged):
+        score = row.outcome.score
+        passed = row.outcome.passed_count
+        total = row.outcome.total_tests
+    return [
+        row.problem_number,
+        row.assignment_title,
+        row.id,
+        row.student_number,
+        row.student_name,
+        row.attempt,
+        row.version_number,
+        bangkok_time(row.submitted_at),
+        row.status.value,
+        score,
+        row.max_score,
+        passed,
+        total,
+        row.is_late,
+    ]
 
 
 @classroom_router.post("/{classroom_id}/assignments/{assignment_id}/runs")

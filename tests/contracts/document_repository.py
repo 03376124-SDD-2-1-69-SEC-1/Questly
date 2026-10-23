@@ -2,7 +2,11 @@
 
 from collections.abc import Callable
 
-from questly.core.documents.models import DocumentLibraryItem, KnowledgeDocument
+from questly.core.documents.models import (
+    DocumentLibraryItem,
+    DocumentStatus,
+    KnowledgeDocument,
+)
 from questly.core.documents.ports import KnowledgeDocumentRepository
 
 SeedDocument = Callable[[int, str], KnowledgeDocument]
@@ -56,3 +60,99 @@ class DocumentRepositoryContract:
         assert not repository.delete_for_owner(used.id, 10)
         assert repository.delete_for_owner(unused.id, 10)
         assert repository.get_for_owner(unused.id, 10) is None
+
+    def test_delete_refuses_a_document_that_left_the_uploaded_state(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "ingesting.pdf")
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.INGESTING,
+        )
+
+        assert not repository.delete_for_owner(document.id, 10)
+
+        kept = repository.get_for_owner(document.id, 10)
+        assert kept is not None
+        assert kept.document.status is DocumentStatus.INGESTING
+
+    def test_update_status_requires_ownership_and_expected_status(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "status.pdf")
+
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=document.status,
+            new_status=DocumentStatus.READY,
+        )
+
+        updated = repository.get_for_owner(document.id, 10)
+        assert updated is not None
+        assert updated.document.status is DocumentStatus.READY
+
+        assert not repository.update_status_for_owner(
+            document.id,
+            20,
+            expected_status=DocumentStatus.READY,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        assert not repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        unchanged = repository.get_for_owner(document.id, 10)
+        assert unchanged is not None
+        assert unchanged.document.status is DocumentStatus.READY
+
+    def test_update_status_moves_a_failed_document_back_to_uploaded(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "retry.pdf")
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.FAILED,
+        )
+
+        assert repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.FAILED,
+            new_status=DocumentStatus.UPLOADED,
+        )
+        assert not repository.update_status_for_owner(
+            document.id,
+            10,
+            expected_status=DocumentStatus.FAILED,
+            new_status=DocumentStatus.UPLOADED,
+        )
+
+        retried = repository.get_for_owner(document.id, 10)
+        assert retried is not None
+        assert retried.document.status is DocumentStatus.UPLOADED
+
+    def test_update_status_returns_false_for_missing_document(
+        self,
+        repository: KnowledgeDocumentRepository,
+    ) -> None:
+        assert not repository.update_status_for_owner(
+            999,
+            10,
+            expected_status=DocumentStatus.UPLOADED,
+            new_status=DocumentStatus.READY,
+        )

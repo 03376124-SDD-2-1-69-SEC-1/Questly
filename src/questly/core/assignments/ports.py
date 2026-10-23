@@ -20,7 +20,7 @@ from questly.core.assignments.models import (
     StudentStanding,
 )
 from questly.core.auth.models import Actor
-from questly.core.classrooms.models import ClassroomRole
+from questly.core.classrooms.models import ClassroomRole, MemberView
 from questly.core.notifications.models import NotificationKind, NotificationPayload
 
 
@@ -69,15 +69,13 @@ class PostingRepository(Protocol):
 
 
 class ClassroomAccess(Protocol):
-    """What the classrooms slice knows: roles, member counts and names."""
+    """What the classrooms slice knows: roles, member counts and members."""
 
     def role_of(self, actor: Actor, classroom_id: int) -> ClassroomRole: ...
 
     def member_ids(self, actor: Actor, classroom_id: int) -> list[int]: ...
 
-    def member_names(
-        self, actor: Actor, classroom_id: int
-    ) -> list[tuple[int, str]]: ...
+    def members(self, actor: Actor, classroom_id: int) -> list[MemberView]: ...
 
 
 class PostingStats(Protocol):

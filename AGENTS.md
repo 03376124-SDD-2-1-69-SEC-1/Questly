@@ -26,7 +26,7 @@ setup and background live in `README.md` and `docs/adr/`.
 | `core/documents`              | Working; Instructor document library persisted on Neon                                                                                                                                                                                                                                                                                                                                                                                                    | CORE-16, OPS-20                 |
 | `core/notifications`, `admin` | Working; persisted on Neon (CORE-18/OPS-21, CORE-19/OPS-22)                                                                                                                                                                                                                                                                                                                                                                                               | done (CORE-18, 19)              |
 | `database/`                   | ADR-0007 + ADR-0008 schema live on Neon (head `a2ec7512fb2c` once OPS-23 is upgraded); a SQL adapter per port, each held to a contract in `tests/contracts/`                                                                                                                                                                                                                                                                                              | done (OPS-15)                   |
-| `ai/`                         | Vector storage (AI-01), ingestion (AI-02 to 04) and retrieval (AI-05) work; embeddings and the real `GenerationClient` (AI-06) call OpenRouter through the `openrouter` SDK (ADR-0009). Retrieval is not yet wired into generation. AI-07 and AI-08 are open. The AI module has no routes; core reaches it through ports (OPS-16). Seed corpus: 100 PDFs on R2 under `sources/programming-in-th/` (OPS-17), not yet in `core.knowledge_documents` (OPS-18) or `rag` (AI-08). | ฟิล์ม (AI-07, 08), พาย (OPS-16) |
+| `ai/`                         | Vector storage (AI-01), ingestion (AI-02 to 04) and retrieval (AI-05) work; embeddings and the real `GenerationClient` (AI-06) call OpenRouter through the `openrouter` SDK (ADR-0009). Retrieval is not yet wired into generation. AI-07 and AI-08 are open. The AI module has no routes; core reaches it through ports (OPS-16). Seed corpus: 100 PDFs on R2 under `sources/programming-in-th/` (OPS-17), registered in `core.knowledge_documents` (99 rows; one seed file was already in the instructor's library as document id 3) as `uploaded`, owned by `instructor@kmitl.ac.th` (OPS-18), not yet in `rag` (AI-08). | ฟิล์ม (AI-07, 08), พาย (OPS-16) |
 | `web/templates/`              | Every page of ADR-0007 exists except T-06 (FE-08); every page is re-skinned to Figma Make (UI-02 done)                                                                                                                                                                                                                                                                                                                                                    | พาย (FE-08)                     |
 
 Every slice also runs on the in-memory fakes in demo mode (`scripts/demo.py`)
@@ -288,6 +288,19 @@ lives outside `src/` because fakes may not ship in the package. When a slice
 lands, extend `DemoSeed` so its pages have data. `fastapi dev` wires the real
 SQL adapters, so it reads and writes the database in `.env`.
 
+**UI check** (`playwright/ui_walk.py`, OPS-40): after changing a template or
+`app.css`, start demo mode and run
+`uv run --with playwright python -I playwright/ui_walk.py <page paths>` (add
+`--upload-pdf` for T-06). It screenshots each page at 1280px and 390px and
+records a video into `playwright/out/` (git-ignored). Look at the screenshots
+yourself before saying a UI change is done, and attach the desktop and mobile
+shots of every changed page to the PR. Usage and options: `playwright/README.md`.
+- Playwright is not a dependency: always `uv run --with playwright`, never
+  add it to `pyproject.toml`.
+- If you start the demo server in the background for this, stop it when the
+  walk ends.
+- The no-JavaScript rule covers templates only; this Python script is fine.
+
 `tests/unit/` domain + service · `tests/integration/` HTTP via ASGI transport ·
 `tests/architecture/` import direction and the no-JavaScript rule ·
 `tests/db/` database adapters against a real PostgreSQL · `tests/r2/` object
@@ -300,7 +313,15 @@ throwaway infrastructure:
 - `tests/db/` — mark tests `postgres`, read the DSN from the `postgres_url`
   fixture, and never from `DATABASE_URL`. `scripts/run_integration_tests.py`
   supplies `POSTGRES_TEST_URL` by creating a Neon branch per run and deleting it
-  afterwards.
+  afterwards. That is the only way to run them:
+  `uv run --env-file .env python -m scripts.run_integration_tests --only postgres`.
+  - No Docker in this project: no `docker run`, no `docker compose`, no
+    `pgvector`/`postgres` image.
+  - No local Postgres cluster for `tests/db/`: no `initdb`, `pg_ctl`, or
+    `apt install postgresql`.
+  - If you cannot reach Neon (no `.env`, or port 5432 is blocked), stop and ask
+    พาย to run the script. Do not find another way, and never put results from
+    a local database in a PR in place of the Neon result.
 - `tests/r2/` — mark tests `r2`, read the client and bucket from the
   `r2_test_bucket` fixture and a unique key from `r2_test_prefix`, and never
   from `R2_BUCKET_NAME`/`R2_ENDPOINT_URL`/etc. Reserve this marker for
@@ -320,7 +341,8 @@ from a hosted runner they took ten minutes, so CI runs
 `pytest -m "not postgres and not r2"`. Run
 `uv run --env-file .env python -m scripts.run_integration_tests` yourself before
 a PR that touches `database/`, `alembic/`, `tests/db/` or `tests/r2/`, and quote
-its result in the PR description. CI does not apply migrations either, so a new
+its result in the PR description. An agent that cannot reach Neon hands the run
+to พาย (see `tests/db/` above). CI does not apply migrations either, so a new
 migration is proven only by that script.
 
 With those variables unset the marked tests skip themselves, so
@@ -335,6 +357,13 @@ rules and known limits are in `docs/handoff/2026-09-28-OPS-17-pith-seed.md`.
 
 - Re-seed with `uv run --env-file .env python scripts/seed_pith_to_r2.py`
   (`--dry-run` first). It skips objects that exist and never deletes.
+- Register the seed in `core.knowledge_documents` with
+  `uv run --env-file .env python scripts/seed_pith_to_r2.py --register-db --owner-email instructor@kmitl.ac.th`
+  (OPS-18). Rows start as `uploaded` with `metadata` keys `topic`, `difficulty`,
+  `task_id` and `course: "seed-pith"`; a rerun skips rows the owner already has
+  with the same `content_hash`. Only that owner sees the seed on T-03, and only
+  once AI-08 marks the rows `ready`, so test AI-08 signed in as
+  `instructor@kmitl.ac.th`.
 - Do not delete or overwrite objects under that prefix; ingestion work reads them.
 - Tests never read this prefix — the "never hit the real R2 bucket" rule above
   still applies. Use `tests/fixtures/pdfs/` or moto.

@@ -175,6 +175,7 @@ class ScoreRow:
     """A row of the T-01 Summary score table, one score per Posting."""
 
     student_name: str
+    student_number: str | None
     scores: list[float | None] = field(default_factory=list)
 
     @property

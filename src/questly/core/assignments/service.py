@@ -207,6 +207,12 @@ class AssignmentService:
             avg_score=average(scores),
         )
 
+    def export_summary(self, actor: Actor, classroom_id: int) -> InstructorSummary:
+        """Export the classroom score table as CSV; restricted to the owner."""
+        self._require_owner(actor, classroom_id)
+        numbered = self._numbered_postings(classroom_id)
+        return self._instructor_summary(actor, classroom_id, numbered)
+
     def problem(
         self, actor: Actor, classroom_id: int, assignment_id: int
     ) -> InstructorProblem | StudentProblem:
@@ -512,20 +518,21 @@ class AssignmentService:
         classroom_id: int,
         numbered: list[tuple[int, Posting, Assignment]],
     ) -> InstructorSummary:
-        members = self._classrooms.member_names(actor, classroom_id)
+        members = self._classrooms.members(actor, classroom_id)
         postings = [posting for _, posting, _ in numbered]
         passed = 0
         never_submitted = 0
         rows = []
-        for student_id, name in members:
-            standings = [self._stats.standing(p.id, student_id) for p in postings]
+        for member in members:
+            standings = [self._stats.standing(p.id, member.user_id) for p in postings]
             passed += sum(1 for s in standings if s.state is StudentState.PASSED)
             if postings and all(s.state is StudentState.NOT_STARTED for s in standings):
                 never_submitted += 1
             rows.append(
                 ScoreRow(
-                    student_name=name,
-                    scores=[self._stats.score(p.id, student_id) for p in postings],
+                    student_name=member.full_name,
+                    student_number=member.student_number,
+                    scores=[self._stats.score(p.id, member.user_id) for p in postings],
                 )
             )
         slots = len(members) * len(postings)

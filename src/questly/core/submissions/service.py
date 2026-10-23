@@ -20,6 +20,7 @@ from questly.core.assignments.service import (
     PostingNotFoundError,
 )
 from questly.core.auth.models import Actor, PermissionDeniedError
+from questly.core.classrooms.models import MemberView
 from questly.core.submissions.models import (
     BatchState,
     ClassroomArchivedError,
@@ -27,6 +28,8 @@ from questly.core.submissions.models import (
     Execution,
     ExecutionStatus,
     InstructorResultsView,
+    Judged,
+    NotJudged,
     PostingClosedError,
     Recovery,
     ResubmissionNotAllowedError,
@@ -35,6 +38,7 @@ from questly.core.submissions.models import (
     StudentResult,
     StudentSolveView,
     Submission,
+    SubmissionExportRow,
     SubmissionNotFoundError,
     SubmissionPendingError,
     SubmissionStatus,
@@ -75,6 +79,42 @@ def judge(test_case: TestCase, execution: Execution) -> Verdict:
     if outputs_match(test_case.expected_output, execution.stdout):
         return Verdict.PASSED
     return Verdict.WRONG_ANSWER
+
+
+def _export_row(
+    problem: InstructorProblem, submission: Submission, roster: dict[int, MemberView]
+) -> SubmissionExportRow:
+    """One submissions.csv row; only a `done` Submission has a verdict."""
+    if submission.id is None:
+        raise ValueError("a stored Submission has an id")
+    outcome: Judged | NotJudged = NotJudged()
+    if submission.score is not None:
+        outcome = Judged(
+            score=submission.score,
+            passed_count=submission.passed_count,
+            total_tests=len(submission.results),
+        )
+    student_number = ""
+    student_name = ""
+    member = roster.get(submission.student_id)
+    if member is not None:
+        student_name = member.full_name
+        if member.student_number is not None:
+            student_number = member.student_number
+    return SubmissionExportRow(
+        problem_number=problem.number,
+        assignment_title=problem.assignment.title,
+        id=submission.id,
+        student_number=student_number,
+        student_name=student_name,
+        attempt=submission.attempt,
+        version_number=submission.version_number,
+        submitted_at=submission.submitted_at,
+        status=submission.status,
+        outcome=outcome,
+        max_score=submission.max_score,
+        is_late=submission.is_late,
+    )
 
 
 def score_for(results: tuple[TestResult, ...], max_score: int) -> int:
@@ -168,6 +208,17 @@ class SubmissionService:
         if isinstance(problem, InstructorProblem):
             return self._repository.list_for_posting(problem.posting.id)
         return self._repository.list_for_student(problem.posting.id, actor.user_id)
+
+    def export_submissions(
+        self, actor: Actor, classroom_id: int, assignment_id: int
+    ) -> tuple[SubmissionExportRow, ...]:
+        """Export all submissions on a Posting; restricted to the Classroom owner."""
+        problem = self._problems.problem(actor, classroom_id, assignment_id)
+        if not isinstance(problem, InstructorProblem):
+            raise PermissionDeniedError
+        roster = {m.user_id: m for m in self._roster.members(actor, classroom_id)}
+        submissions = self._repository.list_for_posting(problem.posting.id)
+        return tuple(_export_row(problem, s, roster) for s in submissions)
 
     def get(self, actor: Actor, submission_id: int) -> Submission:
         """A Student's own Submission, or any on the Instructor's Posting."""

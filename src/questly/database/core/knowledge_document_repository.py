@@ -7,7 +7,17 @@ because it is the only layer allowed to see both.
 
 from __future__ import annotations
 
-from sqlalchemy import ColumnElement, ScalarSelect, any_, delete, exists, func
+from sqlalchemy import (
+    ColumnElement,
+    Delete,
+    ScalarSelect,
+    Update,
+    any_,
+    delete,
+    exists,
+    func,
+    update,
+)
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import select
 
@@ -29,6 +39,7 @@ def _to_domain(row: KnowledgeDocumentRow) -> KnowledgeDocument:
         object_key=row.r2_object_key,
         content_hash=row.content_hash,
         status=DocumentStatus(row.status),
+        metadata=dict(row.metadata_),
     )
 
 
@@ -59,6 +70,7 @@ class SQLKnowledgeDocumentRepository:
                 filename=document.filename,
                 content_hash=document.content_hash,
                 status=document.status.value,
+                metadata_=dict(document.metadata),
                 uploaded_by=uploaded_by,
             )
             session.add(row)
@@ -108,16 +120,49 @@ class SQLKnowledgeDocumentRepository:
             return DocumentLibraryItem(_to_domain(row), used)
 
     def delete_for_owner(self, document_id: int, uploaded_by: int) -> bool:
-        """Delete an owned, unused document; report whether a row went away.
+        """Delete an owned, unused, not-yet-ingested document.
 
-        No foreign key ties `drafts.document_ids` to this table, so a draft
-        saved after the statement's snapshot can still name a deleted id.
+        Report whether a row went away. The status check sits in the same
+        statement as the delete, so a document that started ingesting after the
+        service read it is not removed. No foreign key ties
+        `drafts.document_ids` to this table, so a draft saved after the
+        statement's snapshot can still name a deleted id.
         """
         statement = delete(KnowledgeDocumentRow).where(
             KnowledgeDocumentRow.id == document_id,
             KnowledgeDocumentRow.uploaded_by == uploaded_by,
+            KnowledgeDocumentRow.status == DocumentStatus.UPLOADED.value,
             ~exists().where(_draft_uses(KnowledgeDocumentRow.id)),
         )
+        return self._execute_one_row(statement)
+
+    def update_status_for_owner(
+        self,
+        document_id: int,
+        uploaded_by: int,
+        *,
+        expected_status: DocumentStatus,
+        new_status: DocumentStatus,
+    ) -> bool:
+        """Move an owned document from `expected_status` to `new_status`.
+
+        Compare-and-set in one UPDATE: it reports False, and changes nothing,
+        when the document is missing, belongs to someone else, or is no longer
+        in `expected_status`.
+        """
+        statement = (
+            update(KnowledgeDocumentRow)
+            .where(
+                KnowledgeDocumentRow.id == document_id,
+                KnowledgeDocumentRow.uploaded_by == uploaded_by,
+                KnowledgeDocumentRow.status == expected_status.value,
+            )
+            .values(status=new_status.value)
+        )
+        return self._execute_one_row(statement)
+
+    def _execute_one_row(self, statement: Delete | Update) -> bool:
+        """Run one DELETE or UPDATE in its own unit of work; wrap DB errors."""
         try:
             with self._session_factory() as session:
                 result = session.execute(statement)

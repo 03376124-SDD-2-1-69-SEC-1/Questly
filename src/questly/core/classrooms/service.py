@@ -249,18 +249,6 @@ class ClassroomService:
         classroom = self._owned(actor, classroom_id)
         return [m.student_id for m in self._repository.list_memberships(classroom.id)]
 
-    def member_names(self, actor: Actor, classroom_id: int) -> list[tuple[int, str]]:
-        """(user id, full name) of every Member, in join order; owner only."""
-        classroom = self._owned(actor, classroom_id)
-        memberships = sorted(
-            self._repository.list_memberships(classroom.id),
-            key=lambda membership: membership.joined_at,
-        )
-        return [
-            (membership.student_id, self._name_of(membership.student_id))
-            for membership in memberships
-        ]
-
     def owned_classrooms(self, actor: Actor) -> list[Classroom]:
         """The Instructor's active Classrooms (T-04 step 4 lists them)."""
         if actor.role is not Role.INSTRUCTOR:

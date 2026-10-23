@@ -30,12 +30,15 @@ from questly.core.submissions.models import (
     Execution,
     ExecutionStatus,
     InstructorResultsView,
+    Judged,
+    NotJudged,
     PostingClosedError,
     Recovery,
     ResubmissionNotAllowedError,
     RunnerUnavailableError,
     StudentSolveView,
     Submission,
+    SubmissionExportRow,
     SubmissionNotFoundError,
     SubmissionPendingError,
     SubmissionStatus,
@@ -89,7 +92,7 @@ class CascadingSubmissionRepository(FakeSubmissionRepository):
 class World:
     def __init__(self) -> None:
         self.clock = FakeClock(NOW)
-        users = FakeAuthRepository()
+        users = self.users = FakeAuthRepository()
         auth = AuthService(users, StubEmailSender(), self.clock)
         self.classrooms = ClassroomService(
             FakeClassroomRepository(), auth, FakeClassroomStats(), self.clock
@@ -129,11 +132,11 @@ class World:
         self.classrooms.join(self.student, self.room.join_code)
         self.classrooms.join(self.other, self.room.join_code)
 
-    def publish(self, **schedule: object) -> int:
+    def publish(self, title: str = "Numbers to words", **schedule: object) -> int:
         published = self.assignments.publish(
             self.teacher,
             AssignmentContent(
-                title="Numbers to words",
+                title=title,
                 problem_statement="Print the word.",
                 difficulty=Difficulty.EASY,
                 test_cases=TESTS,
@@ -753,3 +756,111 @@ def test_average_rounds_half_up_not_to_even(scores: list[int], expected: float) 
     )
 
     assert stats.posting_summary(1).avg_score == expected
+
+
+def test_export_submissions_by_owner_lists_student_and_verdict(world: World) -> None:
+    aid = world.publish()
+    submission = world.submit(aid)
+
+    rows = world.service.export_submissions(world.teacher, world.room.id, aid)
+
+    assert rows == (
+        SubmissionExportRow(
+            problem_number=1,
+            assignment_title="Numbers to words",
+            id=submission.id,
+            student_number="66010001",
+            student_name="Nattapong Suwan",
+            attempt=1,
+            version_number=submission.version_number,
+            submitted_at=submission.submitted_at,
+            status=SubmissionStatus.DONE,
+            outcome=Judged(score=10, passed_count=4, total_tests=4),
+            max_score=10,
+            is_late=False,
+        ),
+    )
+
+
+def test_export_submissions_names_the_problem_each_row_belongs_to(
+    world: World,
+) -> None:
+    world.publish("Warm up")
+    second = world.publish('=HYPERLINK("http://x")')
+
+    world.submit(second)
+    (row,) = world.service.export_submissions(world.teacher, world.room.id, second)
+
+    assert (row.problem_number, row.assignment_title) == (2, '=HYPERLINK("http://x")')
+
+
+def test_export_submissions_has_no_verdict_until_a_submission_is_done(
+    world: World,
+) -> None:
+    aid = world.publish()
+    world.runner.backend.down()
+    lost = world.submit(aid, who=world.other)
+    world.runner.backend.resume()
+    world.clock.advance(GIVE_UP)
+    world.service.recover()
+    assert world.stored(lost).status is SubmissionStatus.FAILED
+    pending = world.receive(aid)
+    world.classrooms.join(world.outsider, world.room.join_code)
+    done = world.submit(aid, who=world.outsider)
+
+    rows = {
+        row.id: row
+        for row in world.service.export_submissions(world.teacher, world.room.id, aid)
+    }
+
+    assert rows[lost.id].status is SubmissionStatus.FAILED
+    assert rows[lost.id].outcome == NotJudged()
+    assert rows[pending.id].status is SubmissionStatus.RECEIVED
+    assert rows[pending.id].outcome == NotJudged()
+    assert rows[done.id].outcome == Judged(score=10, passed_count=4, total_tests=4)
+
+
+def test_export_submissions_leaves_number_blank_for_an_email_without_digits(
+    world: World,
+) -> None:
+    aid = world.publish()
+    named = seed_user(
+        world.users,
+        email="visiting.lecturer@kmitl.ac.th",
+        full_name="Visiting Student",
+        role=Role.STUDENT,
+    )
+    visitor = Actor(named.id, Role.STUDENT, named.full_name, named.email)
+    world.classrooms.join(visitor, world.room.join_code)
+    world.submit(aid, who=visitor)
+
+    (row,) = world.service.export_submissions(world.teacher, world.room.id, aid)
+
+    assert (row.student_number, row.student_name) == ("", "Visiting Student")
+
+
+def test_export_submissions_keeps_the_row_of_a_removed_member_with_blank_identity(
+    world: World,
+) -> None:
+    aid = world.publish()
+    submission = world.submit(aid)
+    world.classrooms.remove_member(world.teacher, world.room.id, world.student.user_id)
+
+    (row,) = world.service.export_submissions(world.teacher, world.room.id, aid)
+
+    assert row.id == submission.id
+    assert (row.student_number, row.student_name) == ("", "")
+
+
+def test_export_submissions_by_student_raises_permission_denied(world: World) -> None:
+    aid = world.publish()
+    with pytest.raises(PermissionDeniedError):
+        world.service.export_submissions(world.student, world.room.id, aid)
+
+
+def test_export_submissions_by_outsider_raises_classroom_not_visible(
+    world: World,
+) -> None:
+    aid = world.publish()
+    with pytest.raises(ClassroomNotVisibleError):
+        world.service.export_submissions(world.outsider, world.room.id, aid)

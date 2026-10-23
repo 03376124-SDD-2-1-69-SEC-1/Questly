@@ -159,6 +159,32 @@ class TestSQLDocumentRepository(DocumentRepositoryContract):
             ).all()
         assert [tuple(row) for row in stored] == [(10,)]
 
+    def test_create_writes_metadata_and_reads_it_back(
+        self,
+        session_factory: SessionFactory,
+        repository: SQLKnowledgeDocumentRepository,
+    ) -> None:
+        """Seed documents carry topic and difficulty for ingestion to copy."""
+        _ensure_user(session_factory, 10)
+        metadata = {"topic": "math", "difficulty": "easy", "course": "seed-pith"}
+
+        created = repository.create(
+            KnowledgeDocument(
+                filename="gcd.pdf",
+                object_key="sources/programming-in-th/codecube_002.pdf",
+                content_hash="e" * 64,
+                metadata=metadata,
+            ),
+            10,
+        )
+
+        assert created.metadata == metadata
+        assert repository.get_by_content_hash("e" * 64, 10) == created
+        with session_factory() as session:
+            stored = session.get(DocumentRow, created.id)
+        assert stored is not None
+        assert stored.metadata_ == metadata
+
     def test_content_hash_lookup_is_scoped_to_the_uploader(
         self,
         session_factory: SessionFactory,
@@ -193,3 +219,17 @@ class TestSQLDocumentRepository(DocumentRepositoryContract):
 
         with pytest.raises(DocumentRepositoryError):
             broken.delete_for_owner(1, 10)
+
+    def test_database_failure_on_status_update_surfaces_as_repository_error(
+        self,
+    ) -> None:
+        """A lost connection is a repository error, not a silent False."""
+        broken = SQLKnowledgeDocumentRepository(_LostConnection)
+
+        with pytest.raises(DocumentRepositoryError):
+            broken.update_status_for_owner(
+                1,
+                10,
+                expected_status=DocumentStatus.UPLOADED,
+                new_status=DocumentStatus.INGESTING,
+            )

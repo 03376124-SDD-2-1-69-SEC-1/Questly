@@ -10,6 +10,7 @@ from questly.core.documents.ports import DocumentRepositoryError
 from questly.core.documents.service import (
     DocumentDeletionFailedError,
     DocumentInUseError,
+    DocumentNotRetryableError,
     DocumentService,
     EmptyUploadError,
     KnowledgeDocumentNotFoundError,
@@ -158,6 +159,52 @@ def test_delete_restores_storage_when_document_repository_fails() -> None:
     assert service.get(_actor(), document.id).document == document
 
 
+def test_retry_returns_a_failed_document_to_uploaded() -> None:
+    service, _, repository = _setup()
+    document = service.store(_actor(), filename="notes.pdf", data=b"broken")
+    repository.seed_status(document.id, DocumentStatus.FAILED)
+
+    retried = service.retry(_actor(), document.id)
+
+    assert retried.document.id == document.id
+    assert retried.document.status is DocumentStatus.UPLOADED
+    assert service.get(_actor(), document.id).document.status is (
+        DocumentStatus.UPLOADED
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [DocumentStatus.UPLOADED, DocumentStatus.INGESTING, DocumentStatus.READY],
+)
+def test_retry_refuses_a_document_whose_ingestion_has_not_failed(
+    status: DocumentStatus,
+) -> None:
+    service, _, repository = _setup()
+    document = service.store(_actor(), filename="notes.pdf", data=b"fine")
+    repository.seed_status(document.id, status)
+
+    with pytest.raises(DocumentNotRetryableError):
+        service.retry(_actor(), document.id)
+
+    assert service.get(_actor(), document.id).document.status is status
+
+
+def test_retry_hides_another_owners_document_and_leaves_it_failed() -> None:
+    service, _, repository = _setup()
+    document = service.store(_actor(user_id=7), filename="notes.pdf", data=b"x")
+    repository.seed_status(document.id, DocumentStatus.FAILED)
+
+    with pytest.raises(KnowledgeDocumentNotFoundError):
+        service.retry(_actor(user_id=8), document.id)
+    with pytest.raises(KnowledgeDocumentNotFoundError):
+        service.retry(_actor(user_id=7), 999999)
+
+    assert service.get(_actor(user_id=7), document.id).document.status is (
+        DocumentStatus.FAILED
+    )
+
+
 def test_non_instructors_cannot_use_document_service() -> None:
     service, _, _ = _setup()
 
@@ -165,3 +212,5 @@ def test_non_instructors_cannot_use_document_service() -> None:
         service.list(_actor(role=Role.STUDENT))
     with pytest.raises(PermissionDeniedError):
         service.store(_actor(role=Role.STUDENT), filename="x.txt", data=b"x")
+    with pytest.raises(PermissionDeniedError):
+        service.retry(_actor(role=Role.STUDENT), 1)
