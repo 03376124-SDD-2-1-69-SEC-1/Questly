@@ -328,7 +328,12 @@ def create_app(
             )
         else:
             provider_quota = StubProviderQuota(clock)
-    auth_service = AuthService(auth_repository, notification_service, clock)
+    auth_service = AuthService(
+        auth_repository,
+        notification_service,
+        clock,
+        base_url=use_settings().base_url,
+    )
     application.state.auth_service = auth_service
     admin_service = AdminService(
         admin_repository,

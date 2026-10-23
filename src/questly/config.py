@@ -62,6 +62,7 @@ class Settings:
     # Judge0 CE: empty URL means no Judge0, and Run/Submit use the stub runner.
     judge0_url: str = ""
     judge0_auth_token: str = ""
+    base_url: str = "http://localhost:8000"
 
 
 def _required(variable: str) -> str:
@@ -140,4 +141,8 @@ def get_settings() -> Settings:
         ),
         judge0_url=os.environ.get("JUDGE0_URL", "").strip(),
         judge0_auth_token=os.environ.get("JUDGE0_AUTH_TOKEN", "").strip(),
+        base_url=(
+            os.environ.get("BASE_URL", "http://localhost:8000").strip().rstrip("/")
+            or "http://localhost:8000"
+        ),
     )

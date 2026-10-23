@@ -70,3 +70,17 @@ def test_judge0_url_and_token_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> No
         "http://judge0:2358",
         "token",
     )
+
+
+def test_base_url_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BASE_URL", raising=False)
+
+    assert config.get_settings().base_url == "http://localhost:8000"
+
+
+def test_base_url_is_trimmed_and_trailing_slash_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BASE_URL", " https://questly.example.com/ ")
+
+    assert config.get_settings().base_url == "https://questly.example.com"
