@@ -61,7 +61,7 @@ _SOLUTION_LANGUAGE = "python"
 _SOLUTION_TIME_LIMIT_SECONDS = 5.0
 _MAX_ATTEMPTS = 2
 _SIMILARITY_THRESHOLD = 0.80
-_MIN_COMPARE_LENGTH = 60
+_MIN_COMPARE_LENGTH = 24
 _RETRIEVAL_LIMIT = 5
 _MAX_SAMPLES = 5
 _INPUT_HEADINGS = frozenset({"sample input", "ตัวอย่างข้อมูลนำเข้า", "ตัวอย่างข้อมูลเข้า"})
@@ -338,35 +338,50 @@ def _grounding_failure(
     on_running: Callable[[GenerationStep], None],
 ) -> str:
     """Return a short reason for retry, or empty text when grounded."""
+    draft = parsed.response.draft
     if any(
-        _too_similar(parsed.response.draft.statement, citation.text_snapshot)
+        _too_similar(draft.statement, citation.text_snapshot)
+        or _too_similar(draft.title, citation.text_snapshot)
         for citation in citations
     ):
         return "statement too similar to a cited excerpt"
 
-    samples = [
-        sample
-        for citation in citations
-        for sample in _sample_pairs(citation.text_snapshot)
-    ][:_MAX_SAMPLES]
-    if not samples:
-        return ""
-    if not parsed.reference_solution:
-        return "reference solution missing for cited sample"
+    for citation in citations:
+        excerpt = citation.text_snapshot
+        pairs = _sample_pairs(excerpt)
+        strategies = [pairs] if pairs else _flattened_sample_strategies(excerpt)
+        if not strategies:
+            if _has_sample_headings(excerpt):
+                return "cited sample could not be parsed safely"
+            continue
+        if not parsed.reference_solution:
+            return "reference solution missing for cited sample"
+        on_running(GenerationStep.RUNNING_SOLUTION)
+        if not any(
+            _strategy_matches(
+                strategy[:_MAX_SAMPLES], parsed.reference_solution, runner
+            )
+            for strategy in strategies
+        ):
+            return "reference solution disagrees with cited sample output"
+    return ""
 
-    on_running(GenerationStep.RUNNING_SOLUTION)
-    for sample_input, sample_output in samples:
+
+def _strategy_matches(
+    pairs: list[tuple[str, str]], solution: str, runner: CodeRunner
+) -> bool:
+    for sample_input, sample_output in pairs:
         execution = runner.run(
-            code=parsed.reference_solution,
+            code=solution,
             language=_SOLUTION_LANGUAGE,
             stdin=sample_input,
             time_limit_seconds=_SOLUTION_TIME_LIMIT_SECONDS,
         )
-        if execution.status is not ExecutionStatus.OK:
-            return "reference solution could not run on cited sample"
-        if _as_expected_output(execution.stdout) != _as_expected_output(sample_output):
-            return "reference solution disagrees with cited sample output"
-    return ""
+        if execution.status is not ExecutionStatus.OK or _as_expected_output(
+            execution.stdout
+        ) != _as_expected_output(sample_output):
+            return False
+    return True
 
 
 def _too_similar(statement: str, excerpt: str) -> bool:
@@ -390,6 +405,8 @@ def _sample_pairs(excerpt: str) -> list[tuple[str, str]]:
     lines: list[str] = []
     sample_input = ""
     for line in [*excerpt.splitlines(), "Sample Input:"]:
+        if line.strip().startswith(("แหล่งที่มา", "Source:")):
+            line = "Sample Input:"
         title, separator, inline = line.strip().replace("：", ":").partition(":")
         normalized = re.sub(r"\s*\d+$", "", title.casefold()).strip()
         next_heading = (
@@ -411,6 +428,52 @@ def _sample_pairs(excerpt: str) -> list[tuple[str, str]]:
         heading = next_heading
         lines = [inline.strip()] if separator and inline.strip() else []
     return samples
+
+
+def _has_sample_headings(excerpt: str) -> bool:
+    return any(
+        line.strip().rstrip(":：").casefold() in _INPUT_HEADINGS
+        for line in excerpt.splitlines()
+    )
+
+
+def _flattened_sample_strategies(excerpt: str) -> list[list[tuple[str, str]]]:
+    """Try bounded layouts when PDF extraction flattens a two-column table."""
+    lines = [line.strip() for line in excerpt.splitlines()]
+    for index, line in enumerate(lines[:-1]):
+        if line.casefold() not in _INPUT_HEADINGS:
+            continue
+        if lines[index + 1].casefold() not in _OUTPUT_HEADINGS:
+            continue
+        values: list[str] = []
+        for value in lines[index + 2 :]:
+            if value.startswith(("แหล่งที่มา", "Source:", "\f")):
+                break
+            if value:
+                values.append(value)
+        if not 2 <= len(values) <= 10:
+            return []
+        strategies = [
+            [("\n".join(values[:split]), "\n".join(values[split:]))]
+            for split in range(1, len(values))
+        ]
+        if len(values) % 2 == 0:
+            strategies.append(
+                [
+                    (values[offset], values[offset + 1])
+                    for offset in range(0, len(values), 2)
+                ]
+            )
+        elif values[-1].isdigit() and len(values[-1]) <= 2:
+            # PyMuPDF sometimes leaves a one-digit page number after the table.
+            strategies.append(
+                [
+                    (values[offset], values[offset + 1])
+                    for offset in range(0, len(values) - 1, 2)
+                ]
+            )
+        return strategies
+    return []
 
 
 def _as_expected_output(stdout: str) -> str:

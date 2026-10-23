@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -21,8 +22,11 @@ from questly.ai.client import (
     OpenRouterGenerationClient,
     StubGenerationClient,
     VectorCitationRetriever,
+    _flattened_sample_strategies,
+    _grounding_failure,
     _parse_response,
     _sample_pairs,
+    _too_similar,
 )
 from questly.ai.retrieval.models import RetrievalResult
 from questly.core.generation.models import GenerationStep
@@ -610,3 +614,71 @@ def test_thai_sample_headings_are_recognized() -> None:
 
 def test_input_format_headings_are_not_mistaken_for_examples() -> None:
     assert _sample_pairs("Input:\nN integers\nOutput:\nmaximum integer") == []
+
+
+def test_bundled_pdf_flattened_sample_is_checked_not_skipped() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+    strategies = _flattened_sample_strategies(fixture)
+    assert [("25\n25\n30", "A")] in strategies
+
+    parsed = _parse_response(_VALID_LLM_RESPONSE)
+    runner = FakeCodeRunner([_ok("wrong"), _ok("wrong"), _ok("A")])
+
+    assert _grounding_failure(parsed, [_citation(fixture)], runner, _ignore_step) == ""
+    assert [call[2] for call in runner.calls] == ["25", "25\n25", "25\n25\n30"]
+
+
+def test_bundled_multirow_sample_table_ignores_page_number() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0004.txt"
+    ).read_text(encoding="utf-8")
+
+    assert [
+        ("ABCDEFG", "All Capital Letter"),
+        ("abcdefg", "All Small Letter"),
+        ("AbCdEfG", "Mix"),
+    ] in _flattened_sample_strategies(fixture)
+
+
+def test_flattened_sample_with_wrong_solution_is_rejected() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+
+    class WrongRunner:
+        def run(
+            self,
+            *,
+            code: str,
+            language: str,
+            stdin: str,
+            time_limit_seconds: float,
+        ) -> Execution:
+            return _ok("wrong")
+
+    assert "disagrees" in _grounding_failure(
+        _parse_response(_VALID_LLM_RESPONSE),
+        [_citation(fixture)],
+        WrongRunner(),
+        _ignore_step,
+    )
+
+
+def test_short_copied_statement_and_long_copied_title_are_detected() -> None:
+    excerpt = "โจทย์ให้อ่านตัวเลขสามตัวและหาค่าสูงสุดจากข้อมูลที่ได้รับ"
+    assert _too_similar(excerpt, f"รายละเอียดเพิ่มเติม {excerpt} และคำอธิบายอื่น")
+
+    parsed = _parse_response(
+        json.dumps(
+            {
+                "title": excerpt,
+                "statement": "Different statement",
+                "test_cases": [{"input_data": "1"}],
+            }
+        )
+    )
+    assert "too similar" in _grounding_failure(
+        parsed, [_citation(excerpt)], FakeCodeRunner([]), _ignore_step
+    )
