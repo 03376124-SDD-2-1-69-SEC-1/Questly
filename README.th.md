@@ -203,6 +203,61 @@ uv run ruff format --check .
 uv run --env-file .env alembic revision --autogenerate -m "describe the change"
 ```
 
+### ตรวจ UI ด้วย Playwright (screenshot และวิดีโอ)
+
+`playwright/ui_walk.py` เปิดหน้าของ demo app ใน Chromium จริงที่ความกว้าง desktop
+(1280×800) และ mobile (390×844) แล้วเก็บ screenshot เต็มหน้าของทุกหน้า พร้อมวิดีโอ
+ของการเดินทั้งหมด ใช้ตรวจการแก้ UI โดยไม่ต้องคลิกเอง และแนบ screenshot ใน PR
+
+Playwright ไม่ใช่ dependency ของโปรเจกต์ `uv run --with playwright` ติดตั้งให้เฉพาะ
+คำสั่งนั้น จึงไม่แก้ `pyproject.toml` และ `uv.lock` รันทั้งสองคำสั่งจาก root ของ repo
+
+```bash
+# terminal 1 — demo server (ใช้ in-memory fakes ไม่ต้องมีฐานข้อมูล)
+uv run python -m scripts.demo
+```
+
+```bash
+# terminal 2 — ครั้งแรกเท่านั้น: ดาวน์โหลด browser (อาจใช้เวลาหลายนาที)
+uv run --with playwright playwright install chromium
+
+# เดินหน้าเริ่มต้น (/classes, /documents)
+uv run --with playwright python -I playwright/ui_walk.py
+
+# เดินเฉพาะหน้าที่แก้
+uv run --with playwright python -I playwright/ui_walk.py /classes /admin
+
+# T-06: อัปโหลด PDF ตัวอย่างด้วย แล้วถ่ายผลลัพธ์
+uv run --with playwright python -I playwright/ui_walk.py --upload-pdf
+
+# เปิดผลลัพธ์บน macOS
+open playwright/out
+```
+
+| ตัวเลือก | ค่าเริ่มต้น | ความหมาย |
+|---|---|---|
+| `PATH ...` | `/classes /documents` | หน้าที่จะเปิด เรียงตามลำดับ |
+| `--as EMAIL` | `somchai.p@kmitl.ac.th` (Instructor) | บัญชี demo จากรายการ "log in as" ที่ `/login` เช่น `admin@kmitl.ac.th` |
+| `--base-url URL` | `http://127.0.0.1:8000` | เซิร์ฟเวอร์ที่จะเดิน |
+| `--out DIR` | `playwright/out` | ที่เก็บ screenshot และวิดีโอ |
+| `--upload-pdf` | ปิด | อัปโหลด PDF ตัวอย่างที่ `/documents` (T-06) หลังเดินเสร็จ |
+
+ผลลัพธ์อยู่ใน `playwright/out/` ซึ่งอยู่ใน `.gitignore`:
+
+- `desktop-<page>.png` และ `mobile-<page>.png`: screenshot เต็มหน้า หน้าละหนึ่งไฟล์
+- `desktop-documents-after-upload.png` และ `mobile-…`: เมื่อใช้ `--upload-pdf`
+- `video-desktop/*.webm` และ `video-mobile/*.webm`: วิดีโอของการเดินทั้งหมด
+
+สิ่งที่ควรดู:
+
+- Desktop: แถวที่ควรอยู่เคียงกันต้องไม่ซ้อนเป็นแนวตั้ง ถ้าซ้อน แปลว่า Tailwind class
+  อาจยังไม่อยู่ใน `app.css` ให้ rebuild ใหม่ (ดู "Styles" ใน README ภาษาอังกฤษ)
+- Mobile: ไม่มีอะไรล้นออกด้านข้าง และไม่มีปุ่มถูกตัด
+- สี การ์ด badge และหัวหน้าเพจตรงกับหน้าอื่น
+
+`-I` รัน Python แบบแยกจากโฟลเดอร์ repo สคริปต์จึงเห็นเฉพาะแพ็กเกจ `playwright`
+ที่ติดตั้ง ดูรายละเอียดเพิ่มที่ `playwright/README.md`
+
 ## โครงสร้างโปรเจกต์
 
 ```text

@@ -283,6 +283,63 @@ Create a migration after changing database models:
 uv run --env-file .env alembic revision --autogenerate -m "describe the change"
 ```
 
+### UI check with Playwright (screenshots and video)
+
+`playwright/ui_walk.py` opens pages of the demo app in a real Chromium at desktop
+(1280×800) and mobile (390×844) width. It saves a full-page screenshot of every
+page and a video of the whole walk. Use it to check a UI change without
+clicking through by hand, and attach the screenshots to the PR.
+
+Playwright is not a project dependency. `uv run --with playwright` installs it
+for that one command, so `pyproject.toml` and `uv.lock` never change. Run both
+commands from the repo root.
+
+```bash
+# terminal 1 — demo server (in-memory fakes, no database needed)
+uv run python -m scripts.demo
+```
+
+```bash
+# terminal 2 — first time only: download the browser (can take several minutes)
+uv run --with playwright playwright install chromium
+
+# walk the default pages (/classes, /documents)
+uv run --with playwright python -I playwright/ui_walk.py
+
+# walk the pages you changed
+uv run --with playwright python -I playwright/ui_walk.py /classes /admin
+
+# T-06: also upload a sample PDF and screenshot the result
+uv run --with playwright python -I playwright/ui_walk.py --upload-pdf
+
+# open the result on macOS
+open playwright/out
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `PATH ...` | `/classes /documents` | pages to open, in order |
+| `--as EMAIL` | `somchai.p@kmitl.ac.th` (Instructor) | demo account from the "log in as" list on `/login`, e.g. `admin@kmitl.ac.th` |
+| `--base-url URL` | `http://127.0.0.1:8000` | server to walk |
+| `--out DIR` | `playwright/out` | where screenshots and videos go |
+| `--upload-pdf` | off | upload a sample PDF on `/documents` (T-06) after the walk |
+
+Output goes to `playwright/out/`, which is git-ignored:
+
+- `desktop-<page>.png` and `mobile-<page>.png`: one full-page screenshot per page
+- `desktop-documents-after-upload.png` and `mobile-…`: with `--upload-pdf`
+- `video-desktop/*.webm` and `video-mobile/*.webm`: the whole walk
+
+What to look at:
+
+- Desktop: rows that should sit side by side are not stacked. If they are, the
+  Tailwind classes are probably missing from `app.css`; rebuild it (see "Styles").
+- Mobile: nothing overflows sideways and no button is cut off.
+- Colours, cards, badges and the page header match the other pages.
+
+`-I` runs Python isolated from the repo folder, so the script sees only the
+installed `playwright` package. More detail: `playwright/README.md`.
+
 ## Project Structure
 
 ```text
