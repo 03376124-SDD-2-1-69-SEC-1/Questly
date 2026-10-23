@@ -21,21 +21,19 @@ from questly.core.documents.service import (
 router = APIRouter(tags=["pages"], include_in_schema=False)
 
 STATUS_LABELS = {
-    DocumentStatus.UPLOADED: "Uploaded",
-    DocumentStatus.INGESTING: "Processing",
-    DocumentStatus.READY: "Ready",
-    DocumentStatus.FAILED: "Failed",
+    DocumentStatus.UPLOADED: "อัปโหลดแล้ว",
+    DocumentStatus.INGESTING: "กำลังประมวลผล",
+    DocumentStatus.READY: "พร้อมใช้",
+    DocumentStatus.FAILED: "ล้มเหลว",
 }
 NOTICES = {
-    "uploaded": "Document uploaded.",
-    "deleted": "Document deleted.",
+    "uploaded": "อัปโหลดเอกสารแล้ว",
+    "deleted": "ลบเอกสารแล้ว",
 }
 ERRORS = {
-    "empty": "Choose a file to upload.",
-    "too_large": "The file exceeds the upload size limit.",
-    "in_use": (
-        "This document is being processed or used by a draft and cannot be deleted."
-    ),
+    "empty": "เลือกไฟล์ที่จะอัปโหลดก่อน",
+    "too_large": "ไฟล์ใหญ่เกินขนาดที่อัปโหลดได้",
+    "in_use": "ลบเอกสารนี้ไม่ได้ เพราะกำลังประมวลผลหรือถูกใช้ใน Draft",
 }
 
 

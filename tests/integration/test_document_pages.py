@@ -83,8 +83,8 @@ async def test_t06_shows_empty_and_processing_and_failed_states(world: World) ->
     page = await client.get("/documents")
 
     assert page.status_code == 200
-    assert "Processing" in page.text
-    assert "Failed" in page.text
+    assert "กำลังประมวลผล" in page.text
+    assert "ล้มเหลว" in page.text
     assert 'data-state="ingesting"' in page.text
     assert 'data-state="failed"' in page.text
     assert '<meta http-equiv="refresh" content="5">' in page.text
