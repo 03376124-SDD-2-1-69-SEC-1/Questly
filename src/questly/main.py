@@ -29,8 +29,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from questly.ai.app.repository import VectorRepository
 from questly.ai.app.service import VectorService
-from questly.ai.client import OpenRouterGenerationClient, StubGenerationClient
+from questly.ai.client import (
+    OpenRouterGenerationClient,
+    StubGenerationClient,
+    VectorCitationRetriever,
+)
+from questly.ai.embeddings.openrouter import create_openrouter_embedding_provider
 from questly.ai.quota import OpenRouterProviderQuota, StubProviderQuota
+from questly.ai.retrieval.service import RetrievalService
 from questly.api_errors import ApplicationErrorResponse
 from questly.config import Settings, get_settings
 from questly.core.admin.pages import router as admin_page_router
@@ -384,12 +390,23 @@ def create_app(
         clock,
     )
 
+    if vector_repository is None:
+        vector_repository = PostgresVectorRepository(use_session_factory())
+    application.state.vector_service = VectorService(vector_repository)
+
     if generation_client is None:
         if use_settings().openrouter_api_key:
+            embedding_provider = create_openrouter_embedding_provider(
+                use_settings().openrouter_api_key,
+                use_settings().embedding_model,
+            )
             generation_client = OpenRouterGenerationClient(
                 api_key=use_settings().openrouter_api_key,
                 model=lambda: admin_repository.get_ai_settings().model,
                 code_runner=code_runner,
+                retriever=VectorCitationRetriever(
+                    embedding_provider, RetrievalService(vector_repository)
+                ),
             )
         else:
             generation_client = StubGenerationClient()
@@ -425,10 +442,6 @@ def create_app(
         knowledge_document_repository,
         max_upload_size_bytes=use_settings().max_upload_size_bytes,
     )
-
-    if vector_repository is None:
-        vector_repository = PostgresVectorRepository(use_session_factory())
-    application.state.vector_service = VectorService(vector_repository)
 
     application.include_router(topic_router)
     application.include_router(assignment_router)

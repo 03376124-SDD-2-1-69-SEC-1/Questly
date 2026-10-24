@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -15,13 +16,26 @@ import openrouter.utils.retries
 import pytest
 from openrouter.errors import NoResponseError, OpenRouterError
 
+from questly.ai.app.models import ChunkSearchResult
 from questly.ai.client import (
+    CitationRetriever,
     OpenRouterGenerationClient,
     StubGenerationClient,
+    VectorCitationRetriever,
+    _flattened_sample_strategies,
+    _grounding_failure,
     _parse_response,
+    _sample_pairs,
+    _too_similar,
 )
+from questly.ai.retrieval.models import RetrievalResult
 from questly.core.generation.models import GenerationStep
-from questly.core.generation.schemas import GenerationRequest, GenerationResponse
+from questly.core.generation.schemas import (
+    Citation,
+    GenerationFilters,
+    GenerationRequest,
+    GenerationResponse,
+)
 from questly.core.submissions.models import Execution, ExecutionStatus
 
 # ---------------------------------------------------------------------------
@@ -145,13 +159,18 @@ def _failed(status: ExecutionStatus) -> Execution:
 
 
 def _make_client(
-    model: str = "test/model", code_runner: FakeCodeRunner | None = None
+    model: str = "test/model",
+    code_runner: FakeCodeRunner | None = None,
+    retriever: CitationRetriever | None = None,
 ) -> OpenRouterGenerationClient:
     """Build a client with a dummy key; SDK won't validate until a call is made."""
     if code_runner is None:
         code_runner = FakeCodeRunner([_ok("5"), _ok("42")])
     return OpenRouterGenerationClient(
-        api_key="dummy-key", model=lambda: model, code_runner=code_runner
+        api_key="dummy-key",
+        model=lambda: model,
+        code_runner=code_runner,
+        retriever=retriever,
     )
 
 
@@ -450,3 +469,216 @@ def test_stub_client_reports_the_stages_it_runs() -> None:
     StubGenerationClient().generate(GenerationRequest(prompt="x"), steps.append)
 
     assert steps == [GenerationStep.CALLING_MODEL, GenerationStep.VALIDATING]
+
+
+class FakeCitationRetriever:
+    def __init__(self, citations: list[Citation]) -> None:
+        self.citations = citations
+        self.calls: list[GenerationRequest] = []
+
+    def retrieve(self, request: GenerationRequest) -> list[Citation]:
+        self.calls.append(request)
+        return self.citations
+
+
+def _citation(text: str) -> Citation:
+    return Citation(chunk_id=12, source_id=7, page=2, score=0.9, text_snapshot=text)
+
+
+def test_vector_retriever_passes_selected_ids_and_returns_citations() -> None:
+    embedder = MagicMock()
+    embedder.model = "test-embedding"
+    embedder.embed.return_value = (1.0,) + (0.0,) * 767
+    retrieval = MagicMock()
+    retrieval.retrieve.return_value = RetrievalResult(
+        matches=(ChunkSearchResult(12, 7, 2, "excerpt", 0.9),),
+        difficulty_relaxed=False,
+    )
+    request = GenerationRequest(
+        prompt="array",
+        document_ids=[9, 2, 9],
+        filters=GenerationFilters(topic="arrays", difficulty="easy"),
+    )
+
+    citations = VectorCitationRetriever(embedder, retrieval).retrieve(request)
+
+    assert citations == [_citation("excerpt")]
+    assert retrieval.retrieve.call_args.kwargs["filters"].core_document_ids == (2, 9)
+
+
+def test_generation_uses_cited_sample_to_retry_wrong_solution() -> None:
+    retriever = FakeCitationRetriever(
+        [_citation("โจทย์เรื่องค่าสูงสุด\nSample Input:\n3\n1 5 2\nSample Output:\n5")]
+    )
+    runner = FakeCodeRunner([_ok("4"), _ok("5"), _ok("5"), _ok("42")])
+    client = _make_client(code_runner=runner, retriever=retriever)
+    steps: list[GenerationStep] = []
+    with patch.object(
+        client._client.chat,
+        "send",
+        side_effect=[
+            _mock_result(_VALID_LLM_RESPONSE),
+            _mock_result(_VALID_LLM_RESPONSE),
+        ],
+    ) as send:
+        response = client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), steps.append
+        )
+
+    assert send.call_count == 2
+    assert [call[2] for call in runner.calls] == [
+        "3\n1 5 2",
+        "3\n1 5 2",
+        "3\n1 5 2",
+        "1\n42",
+    ]
+    assert response.citations == retriever.citations
+    assert [case.expected_output for case in response.draft.test_cases] == ["5", "42"]
+    assert steps == [
+        GenerationStep.RETRIEVING,
+        GenerationStep.CALLING_MODEL,
+        GenerationStep.VALIDATING,
+        GenerationStep.RUNNING_SOLUTION,
+    ]
+
+
+def test_generation_retries_near_copy_of_cited_chunk() -> None:
+    excerpt = "โจทย์ให้อ่านจำนวนเต็มหลายค่าแล้วหาค่ามากที่สุดจากรายการที่ได้รับ " * 3
+    copied = json.dumps(
+        {
+            "title": "Copy",
+            "statement": excerpt,
+            "test_cases": [{"input_data": "3\n1 5 2"}],
+            "reference_solution": _SOLUTION,
+        }
+    )
+    retriever = FakeCitationRetriever([_citation(excerpt)])
+    client = _make_client(retriever=retriever)
+    with patch.object(
+        client._client.chat,
+        "send",
+        side_effect=[_mock_result(copied), _mock_result(_VALID_LLM_RESPONSE)],
+    ) as send:
+        response = client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), _ignore_step
+        )
+
+    assert send.call_count == 2
+    assert response.draft.statement == "Given N integers, find the maximum."
+    assert response.citations == retriever.citations
+
+
+def test_generation_rejects_two_near_copies() -> None:
+    excerpt = "คำอธิบายโจทย์ที่ยาวมากและมีรายละเอียดหลายประโยคเพื่อใช้เปรียบเทียบ " * 3
+    copied = json.dumps(
+        {"title": "Copy", "statement": excerpt, "test_cases": [{"input_data": "1"}]}
+    )
+    client = _make_client(retriever=FakeCitationRetriever([_citation(excerpt)]))
+    with (
+        patch.object(client._client.chat, "send", return_value=_mock_result(copied)),
+        pytest.raises(ValueError, match="too similar"),
+    ):
+        client.generate(
+            GenerationRequest(prompt="copy", document_ids=[7]), _ignore_step
+        )
+
+
+def test_generation_does_not_search_without_selected_documents() -> None:
+    retriever = FakeCitationRetriever([_citation("private source")])
+    client = _make_client(retriever=retriever)
+
+    response = _generate(client, _VALID_LLM_RESPONSE)
+
+    assert retriever.calls == []
+    assert response.citations == []
+
+
+def test_selected_documents_without_chunks_do_not_generate_ungrounded_draft() -> None:
+    retriever = FakeCitationRetriever([])
+    client = _make_client(retriever=retriever)
+
+    with (
+        patch.object(client._client.chat, "send") as send,
+        pytest.raises(ValueError, match="no searchable chunks"),
+    ):
+        client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), _ignore_step
+        )
+
+    send.assert_not_called()
+
+
+def test_thai_sample_headings_are_recognized() -> None:
+    assert _sample_pairs("ตัวอย่างข้อมูลนำเข้า\n1 2\nตัวอย่างข้อมูลส่งออก\n3") == [("1 2", "3")]
+
+
+def test_input_format_headings_are_not_mistaken_for_examples() -> None:
+    assert _sample_pairs("Input:\nN integers\nOutput:\nmaximum integer") == []
+
+
+def test_bundled_pdf_flattened_sample_is_checked_not_skipped() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+    strategies = _flattened_sample_strategies(fixture)
+    assert [("25\n25\n30", "A")] in strategies
+
+    parsed = _parse_response(_VALID_LLM_RESPONSE)
+    runner = FakeCodeRunner([_ok("wrong"), _ok("wrong"), _ok("A")])
+
+    assert _grounding_failure(parsed, [_citation(fixture)], runner, _ignore_step) == ""
+    assert [call[2] for call in runner.calls] == ["25", "25\n25", "25\n25\n30"]
+
+
+def test_bundled_multirow_sample_table_ignores_page_number() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0004.txt"
+    ).read_text(encoding="utf-8")
+
+    assert [
+        ("ABCDEFG", "All Capital Letter"),
+        ("abcdefg", "All Small Letter"),
+        ("AbCdEfG", "Mix"),
+    ] in _flattened_sample_strategies(fixture)
+
+
+def test_flattened_sample_with_wrong_solution_is_rejected() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+
+    class WrongRunner:
+        def run(
+            self,
+            *,
+            code: str,
+            language: str,
+            stdin: str,
+            time_limit_seconds: float,
+        ) -> Execution:
+            return _ok("wrong")
+
+    assert "disagrees" in _grounding_failure(
+        _parse_response(_VALID_LLM_RESPONSE),
+        [_citation(fixture)],
+        WrongRunner(),
+        _ignore_step,
+    )
+
+
+def test_short_copied_statement_and_long_copied_title_are_detected() -> None:
+    excerpt = "โจทย์ให้อ่านตัวเลขสามตัวและหาค่าสูงสุดจากข้อมูลที่ได้รับ"
+    assert _too_similar(excerpt, f"รายละเอียดเพิ่มเติม {excerpt} และคำอธิบายอื่น")
+
+    parsed = _parse_response(
+        json.dumps(
+            {
+                "title": excerpt,
+                "statement": "Different statement",
+                "test_cases": [{"input_data": "1"}],
+            }
+        )
+    )
+    assert "too similar" in _grounding_failure(
+        parsed, [_citation(excerpt)], FakeCodeRunner([]), _ignore_step
+    )

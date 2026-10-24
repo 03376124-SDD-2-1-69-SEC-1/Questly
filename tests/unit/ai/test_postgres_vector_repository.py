@@ -329,6 +329,22 @@ def test_filtered_search_without_difficulty_keeps_topic_condition() -> None:
     assert "graphs" in compiled.params.values()
 
 
+def test_filtered_search_limits_to_selected_core_documents_in_sql() -> None:
+    session = MagicMock()
+    session.execute.return_value.mappings.return_value.all.return_value = []
+
+    _repository(session).search_filtered(
+        _embedding(),
+        embedding_model=MODEL,
+        limit=3,
+        filters=RetrievalFilters(core_document_ids=(7, 9)),
+    )
+
+    compiled = session.execute.call_args.args[0].compile(dialect=postgresql.dialect())
+    assert "knowledge_sources.core_document_id IN" in str(compiled)
+    assert [7, 9] in compiled.params.values()
+
+
 def test_filtered_search_translates_database_failure() -> None:
     session = MagicMock()
     session.execute.side_effect = OperationalError("SELECT", {}, Exception("offline"))
