@@ -70,6 +70,22 @@ def test_filtered_search_falls_back_only_on_difficulty(
         assert all(match.page is not None for match in result.matches)
         assert all(0.0 <= match.score <= 1.0 for match in result.matches)
 
+        selected = service.retrieve(
+            QUERY,
+            embedding_model=MODEL,
+            top_k=4,
+            filters=RetrievalFilters(
+                topic="graphs",
+                difficulty="hard",
+                core_document_ids=(base_id, base_id + 2),
+            ),
+        )
+        assert selected.difficulty_relaxed is True
+        assert {match.source_id for match in selected.matches} == {
+            source_ids[0],
+            source_ids[2],
+        }
+
         add(6, topic="graphs", difficulty="hard")
         strict = service.retrieve(
             QUERY,

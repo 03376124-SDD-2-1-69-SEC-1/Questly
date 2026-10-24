@@ -1,5 +1,6 @@
 """GenerationJob: the pure state machine behind T-03c."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -117,6 +118,7 @@ def test_progress_marks_done_active_and_pending_steps_in_pipeline_order() -> Non
 
     assert progress.elapsed_seconds == 11
     assert progress.steps == [
+        StepProgress(GenerationStep.RETRIEVING, StepState.PENDING, seconds=None),
         StepProgress(GenerationStep.CALLING_MODEL, StepState.DONE, seconds=9),
         StepProgress(GenerationStep.VALIDATING, StepState.ACTIVE, seconds=None),
         StepProgress(GenerationStep.RUNNING_SOLUTION, StepState.PENDING, seconds=None),
@@ -125,7 +127,16 @@ def test_progress_marks_done_active_and_pending_steps_in_pipeline_order() -> Non
     assert progress.done_count == 1
 
 
-def test_progress_hides_retrieving_until_retrieval_is_wired_in() -> None:
+def test_progress_shows_retrieving_for_selected_documents() -> None:
     steps = [s.step for s in new_job().progress(T0).steps]
 
-    assert GenerationStep.RETRIEVING not in steps
+    assert GenerationStep.RETRIEVING in steps
+
+
+def test_progress_hides_retrieving_without_selected_documents() -> None:
+    job = new_job()
+    job = replace(job, form=replace(job.form, document_ids=[]))
+
+    assert GenerationStep.RETRIEVING not in [
+        step.step for step in job.progress(T0).steps
+    ]
