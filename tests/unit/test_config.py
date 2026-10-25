@@ -1,4 +1,4 @@
-"""GENERATION_MODEL_ALLOWLIST and JUDGE0_* parsing in get_settings()."""
+"""GENERATION_MODEL_ALLOWLIST, JUDGE0_* and BASE_URL parsing in get_settings()."""
 
 from collections.abc import Generator
 
@@ -84,3 +84,80 @@ def test_base_url_is_trimmed_and_trailing_slash_removed(
     monkeypatch.setenv("BASE_URL", " https://questly.example.com/ ")
 
     assert config.get_settings().base_url == "https://questly.example.com"
+
+
+def test_production_without_base_url_fails_naming_the_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("BASE_URL", raising=False)
+
+    with pytest.raises(config.MissingConfigurationError, match="BASE_URL"):
+        config.get_settings()
+
+
+def test_production_with_blank_base_url_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", " Production ")
+    monkeypatch.setenv("BASE_URL", "   ")
+
+    with pytest.raises(config.MissingConfigurationError, match="BASE_URL"):
+        config.get_settings()
+
+
+def test_production_accepts_a_configured_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("BASE_URL", "https://questly.example.com")
+
+    assert config.get_settings().base_url == "https://questly.example.com"
+
+
+@pytest.mark.parametrize("app_env", ["development", "test", ""])
+def test_other_environments_default_base_url_to_localhost(
+    monkeypatch: pytest.MonkeyPatch, app_env: str
+) -> None:
+    monkeypatch.setenv("APP_ENV", app_env)
+    monkeypatch.delenv("BASE_URL", raising=False)
+
+    assert config.get_settings().base_url == "http://localhost:8000"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "questly.example.com",
+        "localhost:8000",
+        "//questly.example.com",
+        "ftp://questly.example.com",
+        "/classes",
+        "https://",
+        "http:///path",
+        "https://host:abc",
+        "https://host:99999",
+        "https://a b.com",
+        "https://u:p@questly.example.com",
+        "https://questly.example.com/?x=1",
+        "https://questly.example.com/#top",
+    ],
+)
+@pytest.mark.parametrize("app_env", ["development", "production"])
+def test_base_url_without_http_scheme_and_host_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, app_env: str, value: str
+) -> None:
+    monkeypatch.setenv("APP_ENV", app_env)
+    monkeypatch.setenv("BASE_URL", value)
+
+    with pytest.raises(config.MissingConfigurationError, match="BASE_URL"):
+        config.get_settings()
+
+
+@pytest.mark.parametrize(
+    "value", ["http://localhost:8000", "https://questly.example.com/"]
+)
+def test_base_url_with_http_or_https_scheme_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("BASE_URL", value)
+
+    assert config.get_settings().base_url == value.rstrip("/")

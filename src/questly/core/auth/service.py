@@ -86,7 +86,7 @@ class AuthService:
         notification_service: NotificationService,
         clock: Clock,
         *,
-        base_url: str = "http://localhost:8000",
+        base_url: str,
     ) -> None:
         self._repository = repository
         self._notification_service = notification_service

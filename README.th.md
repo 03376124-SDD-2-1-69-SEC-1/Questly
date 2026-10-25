@@ -148,9 +148,13 @@ BASE_URL=https://questly.example.com
 ```
 
 ตั้ง `BASE_URL` เป็น origin สาธารณะหลักของแอป (ไม่ต้องมี `/` ปิดท้าย)
-ลิงก์ยืนยันในอีเมลจะใช้ค่านี้สร้างเป็น `{BASE_URL}/verify?token=...`
-โดยไม่อ่าน `Host` header จาก request; ค่าเริ่มต้นสำหรับ development คือ
-`http://localhost:8000`
+ต้องขึ้นต้นด้วย `http://` หรือ `https://` และมี host ค่าอื่นจะถูกปฏิเสธตอนแอป
+อ่าน config อีเมลใช้ค่านี้สร้างลิงก์เต็ม: `{BASE_URL}/verify?token=...` ในอีเมลยืนยัน
+และ `{BASE_URL}/classes/...` ในอีเมลแจ้งเตือน โดยไม่อ่าน `Host` header จาก request
+บน production ให้ตั้ง `APP_ENV=production` และ `BASE_URL`; ถ้า
+`APP_ENV=production` แต่ไม่ตั้ง `BASE_URL` แอปจะไม่ start
+(`MissingConfigurationError`) ส่วน `APP_ENV` ค่าอื่นใช้ `http://localhost:8000`
+เป็นค่าเริ่มต้น
 
 กำหนด `OPENROUTER_API_KEY` เพื่อเรียก OpenRouter สำหรับ generation และ embedding
 (ADR-0009) ถ้าเว้นว่างแอปจะใช้ stub generation client แทน ส่วน `GENERATION_MODEL`

@@ -56,6 +56,7 @@ def service(
         clock=FixedClock(),
         members=classrooms,
         accounts=users,
+        base_url="https://questly.example.com",
     )
 
 
@@ -192,7 +193,7 @@ def test_notify_members_emails_each_member_with_a_link_to_the_problem(
     assert first.subject == "Problem updated: Binary search"
     assert "Hi Nattapong," in first.body
     assert "Test 4 expected the wrong output" in first.body
-    assert "/classes/7/assignments/3" in first.body
+    assert "https://questly.example.com/classes/7/assignments/3" in first.body
 
 
 def test_notify_members_of_an_empty_classroom_stores_and_sends_nothing(

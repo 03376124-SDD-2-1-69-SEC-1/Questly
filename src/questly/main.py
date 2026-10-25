@@ -294,6 +294,7 @@ def create_app(
         clock,
         classroom_repository,
         auth_repository,
+        base_url=use_settings().base_url,
     )
     application.state.notification_service = notification_service
 

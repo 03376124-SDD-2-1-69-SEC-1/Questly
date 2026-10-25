@@ -71,8 +71,11 @@ def service(
         clock,
         FakeClassroomRepository(),
         repository,
+        base_url="http://localhost:8000",
     )
-    return AuthService(repository, notification_service, clock)
+    return AuthService(
+        repository, notification_service, clock, base_url="http://localhost:8000"
+    )
 
 
 def _sign_up(
@@ -396,3 +399,8 @@ def test_stub_email_sender_logs_the_verify_link(
         _sign_up(service)
 
     assert verification_path(mailer) in caplog.text
+
+
+def test_base_url_is_required(repository: FakeAuthRepository) -> None:
+    with pytest.raises(TypeError, match="base_url"):
+        AuthService(repository, StubEmailSender(), FakeClock())  # type: ignore[call-arg]
