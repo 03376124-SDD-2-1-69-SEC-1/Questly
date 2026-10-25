@@ -11,12 +11,16 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
 DEFAULT_MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
 
 REQUIRED_DRIVER = "postgresql+psycopg"
+
+DEFAULT_BASE_URL = "http://localhost:8000"
+PRODUCTION = "production"
 
 
 class MissingConfigurationError(RuntimeError):
@@ -62,7 +66,9 @@ class Settings:
     # Judge0 CE: empty URL means no Judge0, and Run/Submit use the stub runner.
     judge0_url: str = ""
     judge0_auth_token: str = ""
-    base_url: str = "http://localhost:8000"
+    # Public origin that email links are built on:
+    # {base_url}/verify and {base_url}/classes/...
+    base_url: str = DEFAULT_BASE_URL
 
 
 def _required(variable: str) -> str:
@@ -100,6 +106,32 @@ def _database_url() -> str:
             f"DATABASE_URL must use {REQUIRED_DRIVER}://, got {scheme}://"
         )
     return url
+
+
+def _base_url() -> str:
+    """Return the public origin for email links, without a trailing slash.
+
+    Development and tests fall back to localhost. Production has no safe
+    default, so an unset BASE_URL stops the app at startup rather than mailing
+    links that point at localhost. A value without an http(s) scheme and a
+    host would produce relative or broken links, so it is refused everywhere.
+    """
+    raw = os.environ.get("BASE_URL", "").strip()
+    if not raw:
+        app_env = os.environ.get("APP_ENV", "").strip().lower()
+        if app_env == PRODUCTION:
+            raise MissingConfigurationError(
+                "BASE_URL is not set. It is required when APP_ENV=production: "
+                "set it to the app's public origin, e.g. https://questly.example.com."
+            )
+        return DEFAULT_BASE_URL
+    parts = urlsplit(raw)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise MissingConfigurationError(
+            "BASE_URL must start with http:// or https:// and name a host, "
+            f"got {raw!r}."
+        )
+    return raw.rstrip("/")
 
 
 def _model_allowlist(generation_model: str) -> tuple[str, ...]:
@@ -141,8 +173,5 @@ def get_settings() -> Settings:
         ),
         judge0_url=os.environ.get("JUDGE0_URL", "").strip(),
         judge0_auth_token=os.environ.get("JUDGE0_AUTH_TOKEN", "").strip(),
-        base_url=(
-            os.environ.get("BASE_URL", "http://localhost:8000").strip().rstrip("/")
-            or "http://localhost:8000"
-        ),
+        base_url=_base_url(),
     )

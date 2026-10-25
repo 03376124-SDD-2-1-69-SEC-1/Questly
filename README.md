@@ -151,9 +151,14 @@ BASE_URL=https://questly.example.com
 ```
 
 Set `BASE_URL` to the app's canonical public origin (without a trailing slash).
-Verification emails use this value to build `{BASE_URL}/verify?token=...`;
-the link is never derived from the incoming request's `Host` header. The
-development default is `http://localhost:8000`.
+It must start with `http://` or `https://` and name a host; anything else is
+rejected when the app reads its configuration. Emails use this value to build
+full links: `{BASE_URL}/verify?token=...` in verification emails and
+`{BASE_URL}/classes/...` in notification emails. A link is never derived from
+the incoming request's `Host` header. In production set `APP_ENV=production`
+and `BASE_URL`; with `APP_ENV=production` and no `BASE_URL` the app does not
+start (`MissingConfigurationError`). Any other `APP_ENV` falls back to
+`http://localhost:8000`.
 
 Set `OPENROUTER_API_KEY` to call OpenRouter for generation and embeddings
 (ADR-0009); leave it empty to run on the stub generation client.

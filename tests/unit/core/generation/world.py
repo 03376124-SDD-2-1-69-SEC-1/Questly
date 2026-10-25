@@ -35,7 +35,9 @@ class World:
     def __init__(self, quota: int = 20) -> None:
         self.clock = FakeClock()
         users = FakeAuthRepository()
-        auth = AuthService(users, StubEmailSender(), self.clock)
+        auth = AuthService(
+            users, StubEmailSender(), self.clock, base_url="http://localhost:8000"
+        )
         self.classrooms = ClassroomService(
             FakeClassroomRepository(), auth, FakeClassroomStats(), self.clock
         )
