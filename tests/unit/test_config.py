@@ -133,6 +133,12 @@ def test_other_environments_default_base_url_to_localhost(
         "/classes",
         "https://",
         "http:///path",
+        "https://host:abc",
+        "https://host:99999",
+        "https://a b.com",
+        "https://u:p@questly.example.com",
+        "https://questly.example.com/?x=1",
+        "https://questly.example.com/#top",
     ],
 )
 @pytest.mark.parametrize("app_env", ["development", "production"])

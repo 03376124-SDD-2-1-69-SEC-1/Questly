@@ -108,6 +108,22 @@ def _database_url() -> str:
     return url
 
 
+def _is_http_origin(value: str) -> bool:
+    """True for http(s)://host[:port][/path] with no userinfo, query or fragment."""
+    if any(character.isspace() for character in value):
+        return False
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    if parts.username is not None or parts.query or parts.fragment:
+        return False
+    try:
+        _ = parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
+        return False
+    return True
+
+
 def _base_url() -> str:
     """Return the public origin for email links, without a trailing slash.
 
@@ -125,8 +141,7 @@ def _base_url() -> str:
                 "set it to the app's public origin, e.g. https://questly.example.com."
             )
         return DEFAULT_BASE_URL
-    parts = urlsplit(raw)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
+    if not _is_http_origin(raw):
         raise MissingConfigurationError(
             "BASE_URL must start with http:// or https:// and name a host, "
             f"got {raw!r}."
