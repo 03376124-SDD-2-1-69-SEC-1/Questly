@@ -7,8 +7,7 @@ structured GenerationResponse.
 
 The LLM writes a reference solution but never the expected outputs: each
 test case's expected_output is that solution's stdout from the CodeRunner, or
-"" when the run fails (always, under the stub runner) and the Instructor fills
-it at T-04.
+"" when the run fails and the Instructor fills it at T-04.
 """
 
 from __future__ import annotations
@@ -20,12 +19,21 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import Annotated, Protocol
 
 import httpx
 from openrouter import OpenRouter
+from openrouter.components import ChatFormatJSONSchemaConfig, ChatJSONSchemaConfig
 from openrouter.errors import NoResponseError, OpenRouterError
 from openrouter.utils.retries import BackoffStrategy, RetryConfig
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+)
 
 from questly.ai.embeddings.ports import EmbeddingProvider
 from questly.ai.retrieval.models import RetrievalFilters
@@ -70,6 +78,60 @@ _MAX_SAMPLES = 5
 _SAMPLE_RUN_BUDGET = 20
 _INPUT_HEADINGS = frozenset({"sample input", "ตัวอย่างข้อมูลนำเข้า", "ตัวอย่างข้อมูลเข้า"})
 _OUTPUT_HEADINGS = frozenset({"sample output", "ตัวอย่างข้อมูลส่งออก", "ตัวอย่างข้อมูลออก"})
+# Models whose OpenRouter metadata lists `response_format` (checked 2026-10-26
+# against GET /api/v1/models supported_parameters). The poolside laguna models
+# do not list it, so sending a schema would at best be ignored and at worst
+# rejected by their provider. They rely on the prompt plus the same
+# _GeneratedDraft validation, with a retry on a mismatch. Add a slug here only
+# after its metadata lists response_format.
+_STRUCTURED_OUTPUT_MODELS = frozenset({"nvidia/nemotron-3-super-120b-a12b:free"})
+
+
+def _scalar_as_text(value: object) -> object:
+    """Accept a bare number where a model wrote `"input_data": 5`."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+# Parsing ignores keys the model adds, but the schema sent to the provider
+# stays closed: strict json_schema mode needs additionalProperties false.
+_CLOSED_SCHEMA = {"additionalProperties": False}
+
+
+class _GeneratedTestCase(BaseModel):
+    """Test-case shape requested from the model before outputs are computed."""
+
+    model_config = ConfigDict(
+        extra="ignore", strict=True, json_schema_extra=_CLOSED_SCHEMA
+    )
+
+    input_data: Annotated[str, BeforeValidator(_scalar_as_text)]
+
+
+class _GeneratedDraft(BaseModel):
+    """Provider response; the reference solution never leaves the adapter."""
+
+    model_config = ConfigDict(
+        extra="ignore", strict=True, json_schema_extra=_CLOSED_SCHEMA
+    )
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    statement: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    test_cases: list[_GeneratedTestCase] = Field(min_length=2, max_length=5)
+    reference_solution: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+
+
+_RESPONSE_FORMAT = ChatFormatJSONSchemaConfig(
+    type="json_schema",
+    json_schema=ChatJSONSchemaConfig(
+        name="assignment_draft",
+        strict=True,
+        schema_=_GeneratedDraft.model_json_schema(),
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -191,8 +253,7 @@ class OpenRouterGenerationClient:
 
     - Selected documents are retrieved before calling the model.
     - expected_output is the reference solution's stdout from the CodeRunner;
-      a failed run, or a reply without a solution, leaves it "" for the
-      Instructor and never fails the generation.
+      a failed run leaves it "" for the Instructor and never fails generation.
     - Any JSON parse error or missing key raises, which GenerationService
       catches as GenerationFailedError (T-03d).
     """
@@ -252,6 +313,9 @@ class OpenRouterGenerationClient:
                         {"role": "system", "content": _SYSTEM_PROMPT},
                         {"role": "user", "content": user_content},
                     ],
+                    response_format=(
+                        _RESPONSE_FORMAT if model in _STRUCTURED_OUTPUT_MODELS else None
+                    ),
                 )
             except _SDK_ERRORS:
                 logger.exception("OpenRouter call failed model=%s", model)
@@ -261,15 +325,24 @@ class OpenRouterGenerationClient:
             raw = content if isinstance(content, str) else ""
             if attempt == 0:
                 on_step(GenerationStep.VALIDATING)
-            parsed = _parse_response(raw)
-            reason = _grounding_failure(
-                parsed, citations, self._code_runner, report_running, sample_budget
-            )
-            if not reason:
-                response = self._with_expected_outputs(parsed, model, report_running)
-                return response.model_copy(update={"citations": citations})
-            if attempt + 1 == _MAX_ATTEMPTS:
-                raise ValueError(f"grounded generation failed: {reason}")
+            last_attempt = attempt + 1 == _MAX_ATTEMPTS
+            try:
+                parsed = _parse_response(raw)
+            except ValueError as exc:
+                if last_attempt:
+                    raise
+                reason = str(exc)
+            else:
+                reason = _grounding_failure(
+                    parsed, citations, self._code_runner, report_running, sample_budget
+                )
+                if not reason:
+                    response = self._with_expected_outputs(
+                        parsed, model, report_running
+                    )
+                    return response.model_copy(update={"citations": citations})
+                if last_attempt:
+                    raise ValueError(f"grounded generation failed: {reason}")
             user_content += (
                 "\n\nRegenerate the entire draft. The previous attempt failed "
                 f"validation: {reason}."
@@ -283,14 +356,6 @@ class OpenRouterGenerationClient:
         on_step: Callable[[GenerationStep], None],
     ) -> GenerationResponse:
         draft = parsed.response.draft
-        if not parsed.reference_solution:
-            logger.warning(
-                "LLM reply has no reference_solution model=%s; "
-                "expected outputs left blank",
-                model,
-            )
-            return parsed.response
-
         on_step(GenerationStep.RUNNING_SOLUTION)
         test_cases = []
         for index, test_case in enumerate(draft.test_cases):
@@ -327,10 +392,7 @@ class OpenRouterGenerationClient:
 
 @dataclass(frozen=True, slots=True)
 class _ParsedReply:
-    """The draft as the LLM wrote it, plus the solution that stays in the client.
-
-    `reference_solution` is "" when the reply has no usable one.
-    """
+    """The validated draft plus the solution that stays inside this adapter."""
 
     response: GenerationResponse
     reference_solution: str
@@ -380,8 +442,6 @@ def _grounding_failure(
             if _has_sample_headings(excerpt):
                 return "cited sample could not be parsed safely"
             continue
-        if not parsed.reference_solution:
-            return "reference solution missing for cited sample"
         on_running(GenerationStep.RUNNING_SOLUTION)
         checks = []
         for strategy in strategies:
@@ -536,42 +596,27 @@ def _parse_response(raw: str) -> _ParsedReply:
         ).strip()
 
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
+        generated = _GeneratedDraft.model_validate_json(text)
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        )
         raise ValueError(
-            f"LLM response is not valid JSON: {exc}\nRaw: {raw!r}"
+            f"LLM response does not match assignment draft schema ({problems})"
         ) from exc
 
-    title = data.get("title")
-    statement = data.get("statement")
-    raw_cases = data.get("test_cases")
-
-    if not title or not isinstance(title, str):
-        raise ValueError(f"LLM response missing 'title'. Got: {data!r}")
-    if not statement or not isinstance(statement, str):
-        raise ValueError(f"LLM response missing 'statement'. Got: {data!r}")
-    if raw_cases is None or not isinstance(raw_cases, list):
-        raise ValueError(f"LLM response missing 'test_cases'. Got: {data!r}")
-
     test_cases = [
-        TestCaseDraft(
-            input_data=str(tc.get("input_data", "")),
-            expected_output="",
-        )
-        for tc in raw_cases
-        if isinstance(tc, dict)
+        TestCaseDraft(input_data=test_case.input_data, expected_output="")
+        for test_case in generated.test_cases
     ]
 
-    if not test_cases:
-        raise ValueError(f"LLM returned no usable test cases. Got: {raw_cases!r}")
-
     draft = AssignmentDraft(
-        title=title.strip(), statement=statement.strip(), test_cases=test_cases
+        title=generated.title,
+        statement=generated.statement,
+        test_cases=test_cases,
     )
-    solution = data.get("reference_solution")
-    if not isinstance(solution, str) or not solution.strip():
-        solution = ""
     return _ParsedReply(
         response=GenerationResponse(draft=draft, citations=[]),
-        reference_solution=solution,
+        reference_solution=generated.reference_solution,
     )

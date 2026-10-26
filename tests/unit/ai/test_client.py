@@ -19,6 +19,7 @@ from openrouter.errors import NoResponseError, OpenRouterError
 import questly.ai.client as client_module
 from questly.ai.app.models import ChunkSearchResult
 from questly.ai.client import (
+    _RESPONSE_FORMAT,
     CitationRetriever,
     OpenRouterGenerationClient,
     StubGenerationClient,
@@ -38,6 +39,7 @@ from questly.core.generation.schemas import (
     GenerationRequest,
     GenerationResponse,
 )
+from questly.core.generation.service import GenerationFailedError, GenerationService
 from questly.core.submissions.models import Execution, ExecutionStatus
 from questly.core.submissions.ports import CodeRunner
 from questly.integrations.judge0 import StubCodeRunner
@@ -79,7 +81,8 @@ def test_parse_response_valid_json() -> None:
         "test_cases": [
             {"input_data": "4 2\\n1 3"},
             {"input_data": "3 1\\n0 1"}
-        ]
+        ],
+        "reference_solution": "print(1)"
     }"""
     parsed = _parse_response(raw)
     response = parsed.response
@@ -95,7 +98,8 @@ def test_parse_response_valid_json() -> None:
 
 def test_parse_response_carries_reference_solution() -> None:
     raw = (
-        '{"title": "T", "statement": "S", "test_cases": [{"input_data": "1"}],'
+        '{"title": "T", "statement": "S", "test_cases": '
+        '[{"input_data": "1"}, {"input_data": "2"}],'
         ' "reference_solution": "print(int(input()) + 1)"}'
     )
     assert _parse_response(raw).reference_solution == "print(int(input()) + 1)"
@@ -104,32 +108,116 @@ def test_parse_response_carries_reference_solution() -> None:
 def test_parse_response_strips_markdown_fence() -> None:
     raw = (
         "```json\n"
-        '{"title": "X", "statement": "Y", "test_cases": [{"input_data": "1"}]}\n'
+        '{"title": "X", "statement": "Y", "test_cases": '
+        '[{"input_data": "1"}, {"input_data": "2"}], '
+        '"reference_solution": "print(input())"}\n'
         "```"
     )
     assert _parse_response(raw).response.draft.title == "X"
 
 
 def test_parse_response_invalid_json_raises() -> None:
-    with pytest.raises(ValueError, match="not valid JSON"):
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
         _parse_response("not json at all")
 
 
 def test_parse_response_missing_title_raises() -> None:
-    raw = '{"statement": "S", "test_cases": [{"input_data": "1"}]}'
-    with pytest.raises(ValueError, match="missing 'title'"):
+    raw = (
+        '{"statement": "S", "test_cases": '
+        '[{"input_data": "1"}, {"input_data": "2"}], '
+        '"reference_solution": "print(input())"}'
+    )
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
         _parse_response(raw)
 
 
 def test_parse_response_missing_statement_raises() -> None:
-    raw = '{"title": "T", "test_cases": [{"input_data": "1"}]}'
-    with pytest.raises(ValueError, match="missing 'statement'"):
+    raw = (
+        '{"title": "T", "test_cases": '
+        '[{"input_data": "1"}, {"input_data": "2"}], '
+        '"reference_solution": "print(input())"}'
+    )
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
         _parse_response(raw)
 
 
 def test_parse_response_empty_test_cases_raises() -> None:
-    raw = '{"title": "T", "statement": "S", "test_cases": []}'
-    with pytest.raises(ValueError, match="no usable test cases"):
+    raw = (
+        '{"title": "T", "statement": "S", "test_cases": [], '
+        '"reference_solution": "print(input())"}'
+    )
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
+        _parse_response(raw)
+
+
+def test_parse_response_ignores_fields_the_model_adds() -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [
+                {"input_data": "1", "note": "extra"},
+                {"input_data": "2"},
+            ],
+            "reference_solution": "print(input())",
+            "unexpected": True,
+        }
+    )
+
+    response = _parse_response(raw).response
+
+    assert [tc.input_data for tc in response.draft.test_cases] == ["1", "2"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(5, "5"), (-3, "-3"), (1.5, "1.5"), ("7", "7")]
+)
+def test_parse_response_accepts_a_bare_number_as_input_data(
+    value: object, expected: str
+) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": value}, {"input_data": "2"}],
+            "reference_solution": "print(input())",
+        }
+    )
+
+    response = _parse_response(raw).response
+
+    assert response.draft.test_cases[0].input_data == expected
+
+
+@pytest.mark.parametrize("value", [True, None, ["1"], {"n": 1}])
+def test_parse_response_rejects_input_data_that_is_not_a_scalar(
+    value: object,
+) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": value}, {"input_data": "2"}],
+            "reference_solution": "print(input())",
+        }
+    )
+
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
+        _parse_response(raw)
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_parse_response_keeps_two_to_five_test_cases(count: int) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": str(i)} for i in range(count)],
+            "reference_solution": "print(input())",
+        }
+    )
+
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
         _parse_response(raw)
 
 
@@ -188,6 +276,7 @@ def _mock_result(content: str) -> MagicMock:
 
 
 _SOLUTION = "n = int(input())\nprint(max(map(int, input().split())))"
+_STRUCTURED_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 _VALID_LLM_RESPONSE = json.dumps(
     {
@@ -303,18 +392,117 @@ def test_openrouter_client_failed_run_leaves_that_output_blank(
 @pytest.mark.parametrize(
     "solution_field", ["", ', "reference_solution": ""', ', "reference_solution": 7']
 )
-def test_openrouter_client_without_solution_skips_runner(
-    solution_field: str, caplog: pytest.LogCaptureFixture
+def test_openrouter_client_rejects_reply_without_valid_solution(
+    solution_field: str,
 ) -> None:
     runner = FakeCodeRunner([_ok("5"), _ok("42")])
     reply = _NO_SOLUTION_LLM_RESPONSE.rstrip().removesuffix("}") + solution_field + "}"
 
-    with caplog.at_level(logging.WARNING, logger="questly.ai.client"):
-        response = _generate(_make_client(code_runner=runner), reply)
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
+        _generate(_make_client(code_runner=runner), reply)
 
-    assert [tc.expected_output for tc in response.draft.test_cases] == ["", ""]
     assert runner.calls == []
-    assert len(caplog.records) == 1
+
+
+def test_openrouter_client_sends_strict_assignment_schema() -> None:
+    client = _make_client(model=_STRUCTURED_MODEL)
+
+    with patch.object(
+        client._client.chat,
+        "send",
+        return_value=_mock_result(_VALID_LLM_RESPONSE),
+    ) as send:
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    response_format = send.call_args.kwargs["response_format"]
+    assert response_format is _RESPONSE_FORMAT
+    payload = response_format.model_dump(by_alias=True, exclude_none=True)
+    assert payload["type"] == "json_schema"
+    assert payload["json_schema"]["name"] == "assignment_draft"
+    assert payload["json_schema"]["strict"] is True
+    schema = payload["json_schema"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {
+        "title",
+        "statement",
+        "test_cases",
+        "reference_solution",
+    }
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["poolside/laguna-s-2.1:free", "poolside/laguna-xs-2.1:free"],
+)
+def test_poolside_models_omit_unsupported_response_format(model: str) -> None:
+    client = _make_client(model=model)
+
+    with patch.object(
+        client._client.chat,
+        "send",
+        return_value=_mock_result(_VALID_LLM_RESPONSE),
+    ) as send:
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert send.call_args.kwargs["response_format"] is None
+
+
+def test_invalid_structured_reply_becomes_generation_failed_error() -> None:
+    client = _make_client()
+    service = object.__new__(GenerationService)
+    service._client = client
+
+    with (
+        patch.object(
+            client._client.chat,
+            "send",
+            return_value=_mock_result('{"title": 7}'),
+        ),
+        pytest.raises(GenerationFailedError),
+    ):
+        service._call(GenerationRequest(prompt="find max"), _ignore_step)
+
+
+def test_a_reply_that_misses_the_schema_is_retried_once() -> None:
+    client = _make_client()
+    replies = [_mock_result('{"title": 7}'), _mock_result(_VALID_LLM_RESPONSE)]
+
+    with patch.object(client._client.chat, "send", side_effect=replies) as send:
+        response = client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert response.draft.title == "Find Maximum"
+    assert send.call_count == 2
+    retry_prompt = send.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "Regenerate the entire draft" in retry_prompt
+    assert "title" in retry_prompt
+
+
+def test_a_reply_without_a_solution_is_retried_and_then_succeeds() -> None:
+    client = _make_client()
+    replies = [
+        _mock_result(_NO_SOLUTION_LLM_RESPONSE),
+        _mock_result(_VALID_LLM_RESPONSE),
+    ]
+
+    with patch.object(client._client.chat, "send", side_effect=replies) as send:
+        response = client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert send.call_count == 2
+    assert [tc.expected_output for tc in response.draft.test_cases] == ["5", "42"]
+
+
+def test_a_reply_that_keeps_missing_the_schema_raises_after_the_last_attempt() -> None:
+    client = _make_client()
+
+    with (
+        patch.object(
+            client._client.chat, "send", return_value=_mock_result("not json")
+        ) as send,
+        pytest.raises(ValueError, match="does not match assignment draft schema"),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert send.call_count == 2
 
 
 def test_openrouter_client_citations_are_empty(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -360,7 +548,7 @@ def test_openrouter_client_retries_a_rate_limit_then_parses_the_reply(
             return httpx.Response(429, json={"error": {"code": 429, "message": "x"}})
         return httpx.Response(200, json=_chat_result_json(_VALID_LLM_RESPONSE))
 
-    client = _make_client(model="some/model:free")
+    client = _make_client(model=_STRUCTURED_MODEL)
     client._client.sdk_configuration.client = httpx.Client(
         transport=httpx.MockTransport(reply)
     )
@@ -371,8 +559,12 @@ def test_openrouter_client_retries_a_rate_limit_then_parses_the_reply(
     assert len(requests) == 2
     assert requests[-1].url == "https://openrouter.ai/api/v1/chat/completions"
     body = json.loads(requests[-1].content)
-    assert body["model"] == "some/model:free"
+    assert body["model"] == _STRUCTURED_MODEL
     assert [message["role"] for message in body["messages"]] == ["system", "user"]
+    assert body["response_format"]["type"] == "json_schema"
+    assert body["response_format"]["json_schema"]["name"] == "assignment_draft"
+    assert "schema" in body["response_format"]["json_schema"]
+    assert "schema_" not in body["response_format"]["json_schema"]
 
 
 @pytest.mark.parametrize(
@@ -438,12 +630,6 @@ def test_openrouter_client_reports_the_stages_it_really_runs() -> None:
         GenerationStep.VALIDATING,
         GenerationStep.RUNNING_SOLUTION,
     ]
-
-
-def test_openrouter_client_skips_running_solution_when_there_is_none() -> None:
-    steps = _steps_of(_make_client(), _NO_SOLUTION_LLM_RESPONSE)
-
-    assert steps == [GenerationStep.CALLING_MODEL, GenerationStep.VALIDATING]
 
 
 def test_a_step_callback_that_raises_stops_before_the_next_stage() -> None:
@@ -515,7 +701,9 @@ def test_generation_uses_cited_sample_to_retry_wrong_solution() -> None:
         [_citation("โจทย์เรื่องค่าสูงสุด\nSample Input:\n3\n1 5 2\nSample Output:\n5")]
     )
     runner = FakeCodeRunner([_ok("4"), _ok("5"), _ok("5"), _ok("42")])
-    client = _make_client(code_runner=runner, retriever=retriever)
+    client = _make_client(
+        model=_STRUCTURED_MODEL, code_runner=runner, retriever=retriever
+    )
     steps: list[GenerationStep] = []
     with patch.object(
         client._client.chat,
@@ -530,6 +718,10 @@ def test_generation_uses_cited_sample_to_retry_wrong_solution() -> None:
         )
 
     assert send.call_count == 2
+    assert all(
+        call.kwargs["response_format"] is _RESPONSE_FORMAT
+        for call in send.call_args_list
+    )
     assert [call[2] for call in runner.calls] == [
         "3\n1 5 2",
         "3\n1 5 2",
@@ -552,7 +744,10 @@ def test_generation_retries_near_copy_of_cited_chunk() -> None:
         {
             "title": "Copy",
             "statement": excerpt,
-            "test_cases": [{"input_data": "3\n1 5 2"}],
+            "test_cases": [
+                {"input_data": "3\n1 5 2"},
+                {"input_data": "1\n42"},
+            ],
             "reference_solution": _SOLUTION,
         }
     )
@@ -575,7 +770,12 @@ def test_generation_retries_near_copy_of_cited_chunk() -> None:
 def test_generation_rejects_two_near_copies() -> None:
     excerpt = "คำอธิบายโจทย์ที่ยาวมากและมีรายละเอียดหลายประโยคเพื่อใช้เปรียบเทียบ " * 3
     copied = json.dumps(
-        {"title": "Copy", "statement": excerpt, "test_cases": [{"input_data": "1"}]}
+        {
+            "title": "Copy",
+            "statement": excerpt,
+            "test_cases": [{"input_data": "1"}, {"input_data": "2"}],
+            "reference_solution": "print(input())",
+        }
     )
     client = _make_client(retriever=FakeCitationRetriever([_citation(excerpt)]))
     with (
@@ -679,7 +879,8 @@ def test_short_copied_statement_and_long_copied_title_are_detected() -> None:
             {
                 "title": excerpt,
                 "statement": "Different statement",
-                "test_cases": [{"input_data": "1"}],
+                "test_cases": [{"input_data": "1"}, {"input_data": "2"}],
+                "reference_solution": "print(input())",
             }
         )
     )
@@ -715,7 +916,7 @@ def test_stub_runner_does_not_disable_the_copy_similarity_check() -> None:
         {
             "title": "Copy",
             "statement": excerpt,
-            "test_cases": [{"input_data": "1"}],
+            "test_cases": [{"input_data": "1"}, {"input_data": "2"}],
             "reference_solution": _SOLUTION,
         }
     )
