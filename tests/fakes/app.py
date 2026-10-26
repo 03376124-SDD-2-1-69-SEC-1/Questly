@@ -21,7 +21,11 @@ from questly.core.assignments.ports import (
 from questly.core.auth.pages import DemoAccount
 from questly.core.auth.ports import AuthRepository, Clock
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
-from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
+from questly.core.documents.ports import (
+    DocumentIngestor,
+    KnowledgeDocumentRepository,
+    ObjectStorage,
+)
 from questly.core.generation.ports import (
     DocumentCatalog,
     DraftRepository,
@@ -82,6 +86,7 @@ def build_app(
     posting_stats: PostingStats | None = None,
     knowledge_document_repository: KnowledgeDocumentRepository | None = None,
     object_storage: ObjectStorage | None = None,
+    document_ingestor: DocumentIngestor | None = None,
     generation_client: GenerationClient | None = None,
     provider_quota: ProviderQuota | None = None,
     generation_job_store: GenerationJobStore | None = None,
@@ -154,6 +159,8 @@ def build_app(
         posting_stats=posting_stats,
         knowledge_document_repository=knowledge_document_repository,
         object_storage=object_storage,
+        # None means no ingestion: fake settings carry no OpenRouter key.
+        document_ingestor=document_ingestor,
         generation_client=generation_client,
         provider_quota=provider_quota,
         generation_job_store=generation_job_store,
