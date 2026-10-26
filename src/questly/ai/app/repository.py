@@ -39,6 +39,14 @@ class DuplicateChunkError(VectorRepositoryError):
 class VectorRepository(Protocol):
     """Persistence operations required by vector-storage use cases."""
 
+    def delete_source_by_core_document_id(self, core_document_id: int) -> None:
+        """Atomically delete a source and all its chunks by Core document ID.
+
+        Deleting an unknown document is a successful no-op. Adapter failures
+        follow the module-level error contract.
+        """
+        ...
+
     def create_source_with_chunks(
         self,
         source: NewKnowledgeSource,
