@@ -161,7 +161,24 @@ class SQLKnowledgeDocumentRepository:
         )
         return self._execute_one_row(statement)
 
+    def fail_ingesting(self) -> int:
+        """Mark every owner's `ingesting` document `failed`; return the count.
+
+        Unscoped on purpose: startup recovery runs before any request, for
+        documents a previous process left mid-ingestion.
+        """
+        statement = (
+            update(KnowledgeDocumentRow)
+            .where(KnowledgeDocumentRow.status == DocumentStatus.INGESTING.value)
+            .values(status=DocumentStatus.FAILED.value)
+        )
+        return self._execute(statement)
+
     def _execute_one_row(self, statement: Delete | Update) -> bool:
+        """Run one DELETE or UPDATE; report whether it changed exactly one row."""
+        return self._execute(statement) == 1
+
+    def _execute(self, statement: Delete | Update) -> int:
         """Run one DELETE or UPDATE in its own unit of work; wrap DB errors."""
         try:
             with self._session_factory() as session:
@@ -169,7 +186,7 @@ class SQLKnowledgeDocumentRepository:
                 session.commit()
         except SQLAlchemyError as error:
             raise DocumentRepositoryError from error
-        return result.rowcount == 1
+        return result.rowcount
 
     @staticmethod
     def _used_in() -> ScalarSelect[int]:

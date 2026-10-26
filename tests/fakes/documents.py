@@ -123,6 +123,18 @@ class FakeKnowledgeDocumentRepository:
         self._items[document_id] = replace(document, status=new_status)
         return True
 
+    def fail_ingesting(self) -> int:
+        stuck = [
+            document_id
+            for document_id, document in self._items.items()
+            if document.status is DocumentStatus.INGESTING
+        ]
+        for document_id in stuck:
+            self._items[document_id] = replace(
+                self._items[document_id], status=DocumentStatus.FAILED
+            )
+        return len(stuck)
+
     def seed_usage(self, document_id: int, count: int = 1) -> None:
         """Set saved-draft usage for deterministic contract and service tests."""
         self._usage[document_id] += count
