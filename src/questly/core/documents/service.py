@@ -186,12 +186,17 @@ class DocumentService:
                 data=self._storage.get(document.object_key),
                 metadata=document.metadata,
             )
-            self._repository.update_status_for_owner(
+            marked_ready = self._repository.update_status_for_owner(
                 document_id,
                 actor.user_id,
                 expected_status=DocumentStatus.INGESTING,
                 new_status=DocumentStatus.READY,
             )
+            if not marked_ready:
+                logger.warning(
+                    "document %s left ingesting before it could be marked ready",
+                    document_id,
+                )
         except Exception:
             logger.exception("ingesting document %s failed", document_id)
             self._mark_failed(actor, document_id)
@@ -216,9 +221,9 @@ class DocumentService:
 def fail_stuck_ingestions(repository: KnowledgeDocumentRepository) -> int:
     """At startup, fail every document a previous process left `ingesting`.
 
-    Those documents can then be retried. This assumes one app instance: with
-    several, or with scripts/ingest_seed.py running at the same time, a live
-    ingestion elsewhere would be marked failed too.
+    Those documents can then be retried. This assumes one app process (one
+    instance, one worker): with several, or with scripts/ingest_seed.py running
+    at the same time, a live ingestion elsewhere would be marked failed too.
     """
     stuck = repository.fail_ingesting()
     if stuck:
