@@ -50,6 +50,7 @@ filterwarnings = [
 markers = [
     "postgres: talks to a real database through POSTGRES_TEST_URL. Skipped when that variable is unset; see tests/conftest.py",
     "r2: talks to a real R2 bucket through R2_TEST_*. Skipped when those variables are unset; see tests/conftest.py",
+    "judge0: talks to a real Judge0 CE through JUDGE0_TEST_URL. Skipped when that variable is unset, in CI too; see tests/conftest.py",
 ]
 
 [tool.coverage.run]

@@ -117,6 +117,7 @@ Terms used below are defined in `CONTEXT.md`.
    There is no starter code.
 5. Judge0 CE (self-hosted) runs behind a `CodeRunner` Protocol,
    synchronously with a timeout.
+   Superseded for Submit by ADR-0011: Submit is judged in the background.
 6. **Late**: a Submission after the deadline on a Posting that allows late
    work. It is accepted and flagged, with no automatic penalty.
 7. **Archived** Classrooms refuse Run and Submit (page: S-02f with an
@@ -230,7 +231,8 @@ There is no admin dashboard.
 ## 11. Known gaps (deliberate)
 
 - Submit and Generate are synchronous: no progress display and no Cancel
-  (S-02a, T-03c). Generate has had both since ADR-0010; Submit still has not.
+  (S-02a, T-03c). Generate has had both since ADR-0010. Submit has had a
+  progress display since ADR-0011, and still has no Cancel.
   PDF ingestion is asynchronous and T-06 refreshes every 5 s with
   `<meta refresh>` while a document is processing (T-06b); its Cancel is not
   built.

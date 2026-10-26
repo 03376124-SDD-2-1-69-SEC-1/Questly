@@ -9,8 +9,13 @@ environment variable is missing. There is no in-memory mode — a test that want
 one passes a fake from `tests/fakes/` explicitly.
 """
 
+import functools
+import logging
+import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -24,8 +29,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from questly.ai.app.repository import VectorRepository
 from questly.ai.app.service import VectorService
-from questly.ai.client import OpenRouterGenerationClient, StubGenerationClient
+from questly.ai.client import (
+    OpenRouterGenerationClient,
+    StubGenerationClient,
+    VectorCitationRetriever,
+)
+from questly.ai.embeddings.openrouter import create_openrouter_embedding_provider
 from questly.ai.quota import OpenRouterProviderQuota, StubProviderQuota
+from questly.ai.retrieval.service import RetrievalService
 from questly.api_errors import ApplicationErrorResponse
 from questly.config import Settings, get_settings
 from questly.core.admin.pages import router as admin_page_router
@@ -61,6 +72,10 @@ from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.classrooms.routes import router as classroom_router
 from questly.core.classrooms.service import ClassroomService
 from questly.core.classrooms.stats import ComputedClassroomStats
+from questly.core.documents.pages import router as document_page_router
+from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
+from questly.core.documents.routes import router as document_router
+from questly.core.documents.service import DocumentService
 from questly.core.generation.pages import router as generation_page_router
 from questly.core.generation.ports import (
     DocumentCatalog,
@@ -78,7 +93,11 @@ from questly.core.notifications.ports import EmailSender, NotificationRepository
 from questly.core.notifications.routes import router as notification_router
 from questly.core.notifications.service import DueSoonService, NotificationService
 from questly.core.submissions.pages import router as submission_page_router
-from questly.core.submissions.ports import CodeRunner, SubmissionRepository
+from questly.core.submissions.ports import (
+    BatchRunner,
+    CodeRunner,
+    SubmissionRepository,
+)
 from questly.core.submissions.routes import (
     classroom_router as submission_classroom_router,
 )
@@ -88,9 +107,6 @@ from questly.core.submissions.stats import SubmissionPostingStats
 from questly.core.topics.ports import TopicRepository
 from questly.core.topics.routes import router as topic_router
 from questly.core.topics.service import TopicService
-from questly.core.uploads.ports import KnowledgeDocumentRepository, ObjectStorage
-from questly.core.uploads.routes import router as upload_router
-from questly.core.uploads.service import UploadService
 from questly.database.core.admin_repository import SQLAdminRepository
 from questly.database.core.assignment_repository import SQLAssignmentRepository
 from questly.database.core.auth_repository import SQLAuthRepository
@@ -119,7 +135,7 @@ from questly.database.storage.r2 import R2ObjectStorage, build_r2_client, check_
 from questly.integrations.clock import SystemClock
 from questly.integrations.email import StubEmailSender
 from questly.integrations.generation_jobs import InMemoryGenerationJobStore
-from questly.integrations.judge0 import StubCodeRunner
+from questly.integrations.judge0 import StubCodeRunner, connect_judge0
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PACKAGE_DIR / "web"
@@ -127,6 +143,10 @@ _TEMPLATE_DIR = _WEB_DIR / "templates"
 _STATIC_DIR = _WEB_DIR / "static"
 # The quota line is on every T-03 and T-03c load: give up on OpenRouter fast.
 _QUOTA_TIMEOUT_MS = 5_000
+# How often the sweeper looks for Submissions whose judging must be taken over.
+_SWEEP_SECONDS = 15.0
+
+logger = logging.getLogger("questly.main")
 
 
 DISPLAY_ZONE = ZoneInfo("Asia/Bangkok")
@@ -154,6 +174,17 @@ def asset_url(path: str) -> str:
     return f"/static/{path}?v={version}"
 
 
+class Runner(CodeRunner, BatchRunner, Protocol):
+    """One runner serves Run (CodeRunner) and background Submit (BatchRunner)."""
+
+
+def build_code_runner(settings: Settings) -> Runner:
+    """Judge0 CE when JUDGE0_URL is set; otherwise the stub, which runs nothing."""
+    if not settings.judge0_url:
+        return StubCodeRunner()
+    return connect_judge0(settings.judge0_url, settings.judge0_auth_token)
+
+
 def create_app(
     *,
     settings: Settings | None = None,
@@ -179,7 +210,7 @@ def create_app(
     classroom_repository: ClassroomRepository | None = None,
     classroom_stats: ClassroomStats | None = None,
     submission_repository: SubmissionRepository | None = None,
-    code_runner: CodeRunner | None = None,
+    code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     secure_cookies: bool | None = None,
 ) -> FastAPI:
@@ -269,11 +300,15 @@ def create_app(
         clock,
         classroom_repository,
         auth_repository,
+        base_url=use_settings().base_url,
     )
     application.state.notification_service = notification_service
 
     if admin_repository is None:
         admin_repository = SQLAdminRepository(use_session_factory())
+    # Resolved before the health checker, which reports whether it is a stub.
+    if code_runner is None:
+        code_runner = build_code_runner(use_settings())
     if system_health_checker is None:
         system_health_checker = SQLSystemHealthChecker(
             use_session_factory(),
@@ -284,9 +319,7 @@ def create_app(
                     and not isinstance(generation_client, StubGenerationClient)
                 )
             ),
-            sandbox_available=(
-                code_runner is not None and not isinstance(code_runner, StubCodeRunner)
-            ),
+            sandbox_available=not isinstance(code_runner, StubCodeRunner),
             email_available=(not isinstance(email_sender, StubEmailSender)),
         )
     if provider_quota is None:
@@ -302,7 +335,12 @@ def create_app(
             )
         else:
             provider_quota = StubProviderQuota(clock)
-    auth_service = AuthService(auth_repository, notification_service, clock)
+    auth_service = AuthService(
+        auth_repository,
+        notification_service,
+        clock,
+        base_url=use_settings().base_url,
+    )
     application.state.auth_service = auth_service
     admin_service = AdminService(
         admin_repository,
@@ -343,18 +381,33 @@ def create_app(
         classroom_service, assignment_service, clock
     )
 
-    if code_runner is None:
-        code_runner = StubCodeRunner()
     application.state.submission_service = SubmissionService(
-        submission_repository, code_runner, assignment_service, classroom_service, clock
+        submission_repository,
+        code_runner,
+        code_runner,
+        assignment_service,
+        classroom_service,
+        version_repository,
+        clock,
     )
+
+    if vector_repository is None:
+        vector_repository = PostgresVectorRepository(use_session_factory())
+    application.state.vector_service = VectorService(vector_repository)
 
     if generation_client is None:
         if use_settings().openrouter_api_key:
+            embedding_provider = create_openrouter_embedding_provider(
+                use_settings().openrouter_api_key,
+                use_settings().embedding_model,
+            )
             generation_client = OpenRouterGenerationClient(
                 api_key=use_settings().openrouter_api_key,
                 model=lambda: admin_repository.get_ai_settings().model,
                 code_runner=code_runner,
+                retriever=VectorCitationRetriever(
+                    embedding_provider, RetrievalService(vector_repository)
+                ),
             )
         else:
             generation_client = StubGenerationClient()
@@ -385,15 +438,11 @@ def create_app(
         knowledge_document_repository = SQLKnowledgeDocumentRepository(
             use_session_factory()
         )
-    application.state.upload_service = UploadService(
+    application.state.document_service = DocumentService(
         object_storage,
         knowledge_document_repository,
         max_upload_size_bytes=use_settings().max_upload_size_bytes,
     )
-
-    if vector_repository is None:
-        vector_repository = PostgresVectorRepository(use_session_factory())
-    application.state.vector_service = VectorService(vector_repository)
 
     application.include_router(topic_router)
     application.include_router(assignment_router)
@@ -403,7 +452,8 @@ def create_app(
     application.include_router(draft_router)
     application.include_router(draft_classroom_router)
     application.include_router(generation_page_router)
-    application.include_router(upload_router)
+    application.include_router(document_page_router)
+    application.include_router(document_router)
     application.include_router(notification_router)
     application.include_router(notification_page_router)
     application.include_router(auth_router)
@@ -515,6 +565,45 @@ def create_app(
     return application
 
 
+def run_sweeper(
+    recover: Callable[[], None], stop: threading.Event, period_seconds: float
+) -> None:
+    """Call `recover` every `period_seconds` until `stop` is set.
+
+    A failing sweep is logged and the next one runs anyway, so one bad row
+    never ends recovery for the rest.
+    """
+    while not stop.is_set():
+        try:
+            recover()
+        except Exception:
+            logger.exception("judging sweep failed")
+        stop.wait(period_seconds)
+
+
+def start_sweeper(recover: Callable[[], None]) -> None:
+    """Run the sweeper on a daemon thread for the life of the process."""
+    threading.Thread(
+        target=run_sweeper,
+        args=(recover, threading.Event(), _SWEEP_SECONDS),
+        name="judging-sweeper",
+        daemon=True,
+    ).start()
+
+
+@functools.cache
+def production_app() -> FastAPI:
+    """The served app, and the one judging sweeper for this process.
+
+    Started here and never in `create_app`, so tests build apps without
+    threads; a lifespan hook would need `async def`, which this codebase
+    does not use.
+    """
+    application = create_app()
+    start_sweeper(application.state.submission_service.recover)
+    return application
+
+
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI app the first time `questly.main:app` is resolved.
 
@@ -523,5 +612,5 @@ def __getattr__(name: str) -> FastAPI:
     test does — require a populated `.env`.
     """
     if name == "app":
-        return create_app()
+        return production_app()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

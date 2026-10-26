@@ -4,16 +4,28 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import NoReturn
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 
 from questly.core.assignments.models import TestCaseKind
 from questly.core.auth.current import current_actor
+from questly.core.classrooms.csv_export import CsvCell, bangkok_time, csv_response
 from questly.core.submissions.models import (
     ClassroomArchivedError,
     EmptyCodeError,
+    Judged,
     PostingClosedError,
     ResubmissionNotAllowedError,
+    RunnerUnavailableError,
     Submission,
+    SubmissionExportRow,
+    SubmissionPendingError,
     TestResult,
 )
 from questly.core.submissions.schemas import (
@@ -54,8 +66,20 @@ def domain_errors() -> Iterator[None]:
             "resubmission_not_allowed",
             "This problem allows one submission only",
         )
+    except SubmissionPendingError:
+        _fail(
+            status.HTTP_409_CONFLICT,
+            "submission_pending",
+            "Your last submission is still being judged",
+        )
     except EmptyCodeError:
         _fail(422, "empty_code", "Code is empty")
+    except RunnerUnavailableError:
+        _fail(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "runner_unavailable",
+            "The code runner is unavailable; nothing was saved. Try again shortly.",
+        )
 
 
 def result_response(result: TestResult, *, full: bool) -> TestResultResponse:
@@ -79,6 +103,8 @@ def submission_response(submission: Submission) -> SubmissionResponse:
         version_number=submission.version_number,
         submitted_at=submission.submitted_at,
         is_late=submission.is_late,
+        status=submission.status,
+        recovery=submission.recovery,
         score=submission.score,
         max_score=submission.max_score,
         passed=submission.passed_count,
@@ -93,16 +119,23 @@ def submission_response(submission: Submission) -> SubmissionResponse:
 
 @classroom_router.post(
     "/{classroom_id}/assignments/{assignment_id}/submissions",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 def submit(
-    request: Request, classroom_id: int, assignment_id: int, body: CodeRequest
+    request: Request,
+    response: Response,
+    classroom_id: int,
+    assignment_id: int,
+    body: CodeRequest,
+    background_tasks: BackgroundTasks,
 ) -> SubmissionResponse:
+    """Receives the code and judges it in the background; poll `Location`."""
     actor = current_actor(request)
+    service = _service(request)
     with domain_errors():
-        submission = _service(request).submit(
-            actor, classroom_id, assignment_id, body.code
-        )
+        submission = service.submit(actor, classroom_id, assignment_id, body.code)
+    background_tasks.add_task(service.judge, submission.id)
+    response.headers["Location"] = f"{router.prefix}/{submission.id}"
     return submission_response(submission)
 
 
@@ -115,6 +148,67 @@ def list_submissions(
     with domain_errors():
         submissions = _service(request).submissions(actor, classroom_id, assignment_id)
     return [submission_response(submission) for submission in submissions]
+
+
+@classroom_router.get("/{classroom_id}/assignments/{assignment_id}/submissions.csv")
+def export_submissions_csv(
+    request: Request,
+    classroom_id: int,
+    assignment_id: int,
+) -> Response:
+    """Export submission history for an Instructor."""
+    with domain_errors():
+        rows = _service(request).export_submissions(
+            current_actor(request), classroom_id, assignment_id
+        )
+
+    return csv_response(
+        f"classroom-{classroom_id}-assignment-{assignment_id}-submissions.csv",
+        [
+            "Problem No.",
+            "Assignment",
+            "Submission ID",
+            "Student Number",
+            "Student Name",
+            "Attempt",
+            "Version",
+            "Submitted At (Bangkok)",
+            "Status",
+            "Score",
+            "Max Score",
+            "Passed Tests",
+            "Total Tests",
+            "Late",
+        ],
+        (_export_cells(row) for row in rows),
+    )
+
+
+def _export_cells(row: SubmissionExportRow) -> list[CsvCell]:
+    """Score and test counts stay blank until judging has a verdict."""
+    score: CsvCell = ""
+    passed: CsvCell = ""
+    total: CsvCell = ""
+    if isinstance(row.outcome, Judged):
+        score = row.outcome.score
+        passed = row.outcome.passed_count
+        total = row.outcome.total_tests
+    return [
+        row.problem_number,
+        row.assignment_title,
+        row.id,
+        row.student_number,
+        row.student_name,
+        row.attempt,
+        row.version_number,
+        bangkok_time(row.submitted_at),
+        row.status.value,
+        score,
+        row.max_score,
+        passed,
+        total,
+        row.is_late,
+    ]
 
 
 @classroom_router.post("/{classroom_id}/assignments/{assignment_id}/runs")
@@ -134,6 +228,7 @@ def run(
 
 @router.get("/{submission_id}")
 def get_submission(request: Request, submission_id: int) -> SubmissionResponse:
+    """A Submission and how far judging it got; for its Student or Instructor."""
     actor = current_actor(request)
     with domain_errors():
         submission = _service(request).get(actor, submission_id)

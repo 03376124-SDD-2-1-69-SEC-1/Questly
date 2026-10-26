@@ -539,6 +539,27 @@ class SubmissionRow(SQLModel, table=True):
         UniqueConstraint(
             "posting_id", "student_id", "attempt", name="uq_submissions_attempt"
         ),
+        CheckConstraint(
+            "status IN ('received', 'judging', 'done', 'failed')",
+            name="ck_submissions_status",
+        ),
+        CheckConstraint(
+            "recovery IN ('none', 'reconnected', 'rejudged')",
+            name="ck_submissions_recovery",
+        ),
+        CheckConstraint(
+            "(status = 'done') = (score IS NOT NULL)",
+            name="ck_submissions_score_when_done",
+        ),
+        # ADR-0011: one pending Submission per Student and Posting. It also
+        # holds exactly the rows `claim_due` reads.
+        Index(
+            "uq_submissions_one_unfinished",
+            "posting_id",
+            "student_id",
+            unique=True,
+            postgresql_where=text("status IN ('received', 'judging')"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -551,9 +572,22 @@ class SubmissionRow(SQLModel, table=True):
     language: str = Field(nullable=False)
     submitted_at: datetime = _timestamp(nullable=False)
     is_late: bool = Field(nullable=False)
-    score: int = Field(nullable=False)
+    score: int | None = Field(default=None, nullable=True)
     max_score: int = Field(nullable=False)
     attempt: int = Field(nullable=False)
+    status: str = Field(sa_column=Column(Text, nullable=False))
+    recovery: str = Field(
+        default="none",
+        sa_column=Column(Text, nullable=False, server_default="none"),
+    )
+    runner_tokens: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+        ),
+    )
+    # The judging lease (ADR-0011); the domain model never sees it.
+    claimed_until: datetime | None = _timestamp(nullable=True)
 
 
 class SubmissionTestResult(SQLModel, table=True):

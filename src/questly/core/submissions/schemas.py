@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from questly.core.assignments.models import TestCaseKind
-from questly.core.submissions.models import Verdict
+from questly.core.submissions.models import Recovery, SubmissionStatus, Verdict
 
 
 class CodeRequest(BaseModel):
@@ -32,12 +32,19 @@ class SubmissionResponse(BaseModel):
     version_number: int
     submitted_at: datetime
     is_late: bool
-    score: int
+    status: SubmissionStatus = Field(
+        description="received and judging are pending; done and failed are final."
+    )
+    recovery: Recovery = Field(
+        description="reconnected or rejudged when judging was interrupted "
+        "(a server restart, or the runner lost the batch)."
+    )
+    score: int | None = Field(description="Set once the status is done.")
     max_score: int
     passed: int
     total: int
     code: str
-    results: list[TestResultResponse]
+    results: list[TestResultResponse] = Field(description="Empty until done.")
 
 
 class RunResponse(BaseModel):

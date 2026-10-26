@@ -5,9 +5,11 @@
 {% from "student/s02_parts.html" import results_table, result_banner with context %}
 {% set problem = view.problem %}
 {% set url = "/classes/" ~ problem.posting.classroom_id ~ "/assignments/" ~ problem.assignment.id %}
+{#- S-02a: while a Submission is judged the page refreshes itself and is read-only. -#}
+{% block head %}{% if view.pending %}<meta http-equiv="refresh" content="2">{% endif %}{% endblock %}
 {% block title %}{{ problem.assignment.title }} · Questly{% endblock %}
 {% block main %}
-<main class="solve-page" data-page="S-02" data-tab="problem"{% if view.closed %} data-state="S-02f"{% elif view.update %} data-state="S-02e"{% endif %}>
+<main class="solve-page" data-page="S-02" data-tab="problem"{% if view.pending %} data-state="S-02a"{% elif view.closed %} data-state="S-02f"{% elif view.update %} data-state="S-02e"{% endif %}>
   {% if error %}
     {{ toast("danger", "ดำเนินการไม่สำเร็จ", error, state="toast-fault") }}
   {% elif run %}
@@ -17,7 +19,7 @@
     {% else %}
       {{ toast("danger", "Run ไม่ผ่าน", passed ~ " of " ~ (run.results | length) ~ " sample tests passed", state="toast-fault") }}
     {% endif %}
-  {% elif submitted and view.counted %}
+  {% elif submitted and view.counted and not view.pending and not view.failed %}
     {% if view.counted.all_passed %}
       {{ toast("ok", "Submit ผ่านทุกเทสต์", "Score " ~ view.counted.score ~ "/" ~ view.counted.max_score, state="toast-pass") }}
     {% else %}
@@ -33,9 +35,12 @@
     </div>
   </div>
 
-  {% if error or view.update or view.closed %}
+  {% if error or view.failed or view.update or view.closed %}
   <div class="solve-notices">
     {% if error %}{% call alert(tone="danger") %}{{ icon("x", 18) }}{{ error }}{% endcall %}{% endif %}
+    {% if view.failed %}
+      {% call alert(tone="danger", state="S-02-failed") %}{{ icon("x", 18) }}<span class="flex-1">Attempt {{ view.failed.attempt }} could not be judged. It does not count and does not use up a submission; please submit again.</span>{% endcall %}
+    {% endif %}
     {% if view.update %}
       {% call alert(tone="warn", state="S-02e") %}
         <span class="flex-1">This problem was updated on {{ view.update.changed_at | local }}. Please resubmit. Reason from instructor: “{{ view.update.reason }}”</span>
@@ -76,11 +81,13 @@
       <div class="editor-head"><span>solution.py</span><small>Python 3</small></div>
       <form id="solve-form" method="post" action="{{ url }}" class="editor-form">
         {{ csrf_field() }}
-        {{ code_editor("code", code, readonly=view.closed) }}
+        {{ code_editor("code", view.pending.code if view.pending else code, readonly=view.closed or view.pending is not none) }}
       </form>
       <section class="console" aria-labelledby="results-title">
         <div class="console-tabs"><strong>ผลการทดสอบ</strong></div>
-        {% if run %}
+        {% if view.pending %}
+          <div class="console-empty" data-state="S-02a">{{ icon("clock") }}<p id="results-title">Judging attempt {{ view.pending.attempt }}, {{ (view.samples | length) + view.hidden_count }} tests…</p><p>Submitted {{ view.pending.submitted_at | local }}. This page refreshes by itself; Run and Submit come back when judging is done.</p></div>
+        {% elif run %}
           {% call result_banner(run.results, "Results · Run (sample tests only) finished in " ~ "%.2f" | format(run.time_seconds) ~ "s", "Hidden tests run on Submit. A Run is not graded or kept.") %}{% endcall %}
           <div class="px-4 pb-4">{{ results_table(run.results, problem.assignment.settings.show_hidden_names) }}</div>
         {% elif view.counted %}
@@ -95,12 +102,14 @@
           <div class="console-empty">{{ icon("play") }}<p id="results-title">Results</p><p>Run checks your code on the sample tests. Submit grades it on every test; your latest submission counts.</p></div>
         {% endif %}
       </section>
+      {% if not view.pending %}
       <div class="editor-actions">
         {% if not view.closed %}{{ link_button(url, "Reset") }}{% endif %}
         {{ button("Run", name="action", value="run", icon="play", disabled=view.closed, form="solve-form") }}
         {{ button("Submit", variant="primary", name="action", value="submit", icon="send", disabled=not view.can_submit, form="solve-form") }}
       </div>
-      {% if not view.closed and not view.can_submit %}<p class="px-4 pb-3 text-xxs text-soft bg-pap">This problem allows one submission only.</p>{% endif %}
+      {% endif %}
+      {% if not view.closed and not view.pending and not view.can_submit %}<p class="px-4 pb-3 text-xxs text-soft bg-pap">This problem allows one submission only.</p>{% endif %}
     </section>
   </div>
 </main>

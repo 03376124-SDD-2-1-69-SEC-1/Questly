@@ -14,6 +14,11 @@ Locally the marked tests skip themselves, so `uv run pytest` stays green on a
 machine with no test database or bucket. In CI the variables must be present,
 otherwise a failed setup step would leave every marked test skipped and the
 run green while nothing was verified.
+
+Tests marked `judge0` run real programs on a Judge0 CE instance named by
+`JUDGE0_TEST_URL` (and `JUDGE0_TEST_AUTH_TOKEN` when it needs one), never by
+the app's `JUDGE0_URL`. CI has no Judge0, so they skip whenever the URL is
+unset, in CI as well.
 """
 
 import os
@@ -36,6 +41,9 @@ R2_TEST_VARS = (
     "R2_TEST_BUCKET_NAME",
 )
 R2_TEST_PREFIX_VAR = "R2_TEST_PREFIX"
+
+JUDGE0_TEST_URL_VAR = "JUDGE0_TEST_URL"
+JUDGE0_TEST_AUTH_TOKEN_VAR = "JUDGE0_TEST_AUTH_TOKEN"
 
 
 def _running_in_ci() -> bool:
@@ -168,16 +176,38 @@ def r2_test_prefix(r2_test_bucket: tuple):
         client.delete_objects(Bucket=bucket, Delete={"Objects": keys})
 
 
+@pytest.fixture(scope="session")
+def judge0_test_url() -> str:
+    """Return the base URL of the Judge0 CE the smoke tests may use, or fail."""
+    url = os.environ.get(JUDGE0_TEST_URL_VAR, "").strip()
+    if not url:
+        pytest.fail(f"{JUDGE0_TEST_URL_VAR} is unset.")
+    return url
+
+
+@pytest.fixture(scope="session")
+def judge0_test_auth_token() -> str:
+    """The X-Auth-Token for that instance; empty when it needs none."""
+    return os.environ.get(JUDGE0_TEST_AUTH_TOKEN_VAR, "").strip()
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip database/R2 tests locally; let them run and fail loudly in CI."""
+    """Skip database/R2 tests locally; let them run and fail loudly in CI.
+
+    Judge0 tests skip whenever JUDGE0_TEST_URL is unset, CI included.
+    """
     skip_postgres = not (os.environ.get(TEST_URL_VAR) or _running_in_ci())
     skip_r2 = not (_r2_config_present() or _running_in_ci())
+    skip_judge0 = not os.environ.get(JUDGE0_TEST_URL_VAR, "").strip()
     postgres_skip = pytest.mark.skip(reason=f"needs {TEST_URL_VAR}; see .env.example")
     r2_skip = pytest.mark.skip(reason=f"needs {', '.join(R2_TEST_VARS)}; see AGENTS.md")
+    judge0_skip = pytest.mark.skip(reason=f"needs {JUDGE0_TEST_URL_VAR}")
     for item in items:
         if skip_postgres and "postgres" in item.keywords:
             item.add_marker(postgres_skip)
         if skip_r2 and "r2" in item.keywords:
             item.add_marker(r2_skip)
+        if skip_judge0 and "judge0" in item.keywords:
+            item.add_marker(judge0_skip)

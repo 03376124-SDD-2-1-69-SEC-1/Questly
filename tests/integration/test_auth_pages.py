@@ -1,5 +1,6 @@
 """HTTP tests for G-01 login, G-03 sign-up, G-04 verify pages."""
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -8,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from questly.core.auth.models import Role
 from questly.core.auth.pages import DemoAccount
 from questly.integrations.email import StubEmailSender
-from tests.fakes.app import build_app
+from tests.fakes.app import build_app, fake_settings
 from tests.fakes.auth import (
     DEFAULT_PASSWORD,
     FakeAuthRepository,
@@ -127,6 +128,27 @@ async def test_signup_form_success_shows_04a_then_the_link_verifies() -> None:
 
     assert 'data-state="G-04a"' in waiting.text
     assert 'data-state="G-04b"' in verified.text
+
+
+@pytest.mark.anyio
+async def test_verification_email_uses_configured_base_url_not_request_host() -> None:
+    mailer = StubEmailSender()
+    settings = replace(fake_settings(), base_url="https://questly.example.com/")
+    client = _client(build_app(settings=settings, verification_mailer=mailer))
+    client.headers["host"] = "attacker.example"
+    form = {
+        "full_name": "Somchai",
+        "email": "somchai@kmitl.ac.th",
+        "password": "correct horse",
+        "confirm_password": "correct horse",
+    }
+
+    response = await post_form(client, "/signup", form, page="/signup")
+
+    assert response.status_code == 200
+    verify_url = verification_path(mailer)
+    assert verify_url.startswith("https://questly.example.com/verify?token=")
+    assert "attacker.example" not in mailer.messages[-1].body
 
 
 @pytest.mark.anyio

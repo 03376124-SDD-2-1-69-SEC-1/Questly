@@ -61,6 +61,10 @@ class PdfIngestionService:
         except ChunkingError as exc:
             raise IngestionError("PDF has no usable text") from exc
 
+        chunk_metadata: dict[str, object] = {}
+        if "task_id" in metadata:
+            chunk_metadata["task_id"] = metadata["task_id"]
+
         stored_chunks = tuple(
             NewKnowledgeChunk(
                 chunk_index=index,
@@ -72,6 +76,7 @@ class PdfIngestionService:
                 metadata={
                     "page_end": chunk.page_end,
                     "kind": chunk.kind.value,
+                    **chunk_metadata,
                 },
             )
             for index, chunk in enumerate(chunks)

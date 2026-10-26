@@ -9,9 +9,9 @@ from tests.fakes.app import build_app, fake_settings
 from tests.fakes.assignments import FakeAssignmentRepository
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeAuthRepository, seed_user
 from tests.fakes.classrooms import FakeClassroomRepository, FakeClassroomStats
+from tests.fakes.documents import FakeKnowledgeDocumentRepository, FakeObjectStorage
 from tests.fakes.notifications import FakeNotificationRepository
 from tests.fakes.topics import FakeTopicRepository
-from tests.fakes.uploads import FakeKnowledgeDocumentRepository, FakeObjectStorage
 from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import csrf_token, log_in, post_form
 

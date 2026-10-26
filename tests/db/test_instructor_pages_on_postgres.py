@@ -1,10 +1,9 @@
-"""FE-08 pages on the production wiring: T-05 saves a Version in Postgres.
+"""FE-08 pages on the production wiring, backed by Postgres.
 
 The app is built the way `main.py` builds it for production, with only the
 settings, R2 and the vector store swapped out and the database pointed at the
 throwaway branch. The Instructor logs in over HTTP and posts the T-05 form, so
-the rows asserted below were written by the SQL adapters. (T-06 is not here: it
-waits for CORE-16 and OPS-20.)
+the rows asserted below were written by the SQL adapters.
 """
 
 from dataclasses import replace
@@ -26,7 +25,7 @@ from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
 from questly.main import create_app
 from tests.fakes.app import fake_settings
-from tests.fakes.uploads import FakeObjectStorage
+from tests.fakes.documents import FakeObjectStorage
 from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import asgi_client, log_in, post_form
 
@@ -218,3 +217,27 @@ async def test_t02_search_and_notify_students_read_and_write_postgres(
     assert searched.status_code == 200
     # Nobody has submitted yet, so T-02c stays; the search form needs a table.
     assert 'data-state="T-02c"' in searched.text
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("empty_core_tables")
+async def test_t06_shows_the_instructors_postgres_document(
+    postgres_url: str, session_factory: SessionFactory
+) -> None:
+    world = World(postgres_url, session_factory)
+    document = world.app.state.document_service.store(
+        world.teacher,
+        filename="lecture-notes.pdf",
+        data=b"%PDF-1.4 lecture notes",
+    )
+    client = asgi_client(world.app)
+    await log_in(client, INSTRUCTOR_EMAIL, PASSWORD)
+
+    page = await client.get("/documents")
+
+    assert page.status_code == 200
+    assert 'data-page="T-06"' in page.text
+    assert "lecture-notes.pdf" in page.text
+    assert world.rows(
+        "SELECT id, uploaded_by, status FROM core.knowledge_documents"
+    ) == [(document.id, world.teacher.user_id, "uploaded")]

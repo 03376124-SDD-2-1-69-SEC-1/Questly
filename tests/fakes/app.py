@@ -21,6 +21,7 @@ from questly.core.assignments.ports import (
 from questly.core.auth.pages import DemoAccount
 from questly.core.auth.ports import AuthRepository, Clock
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
+from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
 from questly.core.generation.ports import (
     DocumentCatalog,
     DraftRepository,
@@ -28,11 +29,10 @@ from questly.core.generation.ports import (
     GenerationJobStore,
     ProviderQuota,
 )
-from questly.core.submissions.ports import CodeRunner, SubmissionRepository
+from questly.core.submissions.ports import SubmissionRepository
 from questly.core.topics.ports import TopicRepository
-from questly.core.uploads.ports import KnowledgeDocumentRepository, ObjectStorage
 from questly.integrations.email import StubEmailSender
-from questly.main import create_app
+from questly.main import Runner, create_app
 from tests.fakes.admin import FakeAdminRepository, FakeSystemHealthChecker
 from tests.fakes.assignments import (
     FakeAssignmentRepository,
@@ -41,6 +41,7 @@ from tests.fakes.assignments import (
 )
 from tests.fakes.auth import FakeAuthRepository, FakeClock
 from tests.fakes.classrooms import FakeClassroomRepository, FakeClassroomStats
+from tests.fakes.documents import FakeKnowledgeDocumentRepository, FakeObjectStorage
 from tests.fakes.generation import (
     FakeDocumentCatalog,
     FakeDraftRepository,
@@ -50,7 +51,6 @@ from tests.fakes.generation import (
 from tests.fakes.notifications import FakeNotificationRepository
 from tests.fakes.submissions import FakeSubmissionRepository, ScriptedCodeRunner
 from tests.fakes.topics import FakeTopicRepository
-from tests.fakes.uploads import FakeKnowledgeDocumentRepository, FakeObjectStorage
 from tests.fakes.vector import FakeVectorRepository
 
 
@@ -74,6 +74,7 @@ def fake_settings(
 
 def build_app(
     *,
+    settings: Settings | None = None,
     topic_repository: TopicRepository | None = None,
     assignment_repository: AssignmentRepository | None = None,
     version_repository: VersionRepository | None = None,
@@ -96,7 +97,7 @@ def build_app(
     classroom_repository: ClassroomRepository | None = None,
     classroom_stats: ClassroomStats | None = None,
     submission_repository: SubmissionRepository | None = None,
-    code_runner: CodeRunner | None = None,
+    code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     max_upload_size_bytes: int = DEFAULT_MAX_UPLOAD_SIZE_BYTES,
 ) -> FastAPI:
@@ -145,7 +146,7 @@ def build_app(
         classroom_stats = FakeClassroomStats()
 
     return create_app(
-        settings=fake_settings(max_upload_size_bytes=max_upload_size_bytes),
+        settings=settings or fake_settings(max_upload_size_bytes=max_upload_size_bytes),
         topic_repository=topic_repository,
         assignment_repository=assignment_repository,
         version_repository=version_repository,

@@ -12,6 +12,7 @@ from questly.core.assignments.models import (
     JudgingSettings,
     PostingSummary,
     Schedule,
+    ScoreRow,
     StudentProblemList,
     StudentStanding,
     StudentState,
@@ -68,7 +69,9 @@ class World:
     def __init__(self) -> None:
         self.clock = FakeClock()
         users = FakeAuthRepository()
-        auth = AuthService(users, StubEmailSender(), self.clock)
+        auth = AuthService(
+            users, StubEmailSender(), self.clock, base_url="http://localhost:8000"
+        )
         self.classrooms = ClassroomService(
             FakeClassroomRepository(), auth, FakeClassroomStats(), self.clock
         )
@@ -413,3 +416,34 @@ def test_summaries_count_standings(world: World) -> None:
     assert isinstance(student, StudentSummary)
     assert (student.solved, student.passed, student.total) == (2, 1, 2)
     assert student.avg_score == 8
+
+
+def test_export_summary_by_owner_returns_score_table(world: World) -> None:
+    world.classrooms.join(world.pimchanok, world.sec1.join_code)
+    first = world.publish(title="Sum of a list").postings[0]
+    passed = StudentStanding(state=StudentState.PASSED, score=10)
+    world.stats.standings[(first.id, world.nattapong.user_id)] = passed
+
+    result = world.service.export_summary(world.somchai, world.sec1.id)
+
+    assert isinstance(result, InstructorSummary)
+    assert result.problem_titles == ["Sum of a list"]
+    assert result.score_table == [
+        ScoreRow(
+            student_name="Nattapong Suwan", student_number="66010001", scores=[10.0]
+        ),
+        ScoreRow(
+            student_name="Pimchanok Wong", student_number="66010002", scores=[None]
+        ),
+    ]
+    assert [row.total for row in result.score_table] == [10.0, 0]
+
+
+def test_export_summary_by_student_raises_permission_denied(world: World) -> None:
+    with pytest.raises(PermissionDeniedError):
+        world.service.export_summary(world.nattapong, world.sec1.id)
+
+
+def test_export_summary_by_outsider_raises_classroom_not_visible(world: World) -> None:
+    with pytest.raises(ClassroomNotVisibleError):
+        world.service.export_summary(world.pimchanok, world.sec1.id)

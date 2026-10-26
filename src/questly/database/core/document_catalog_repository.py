@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from sqlmodel import select
 
+from questly.core.documents.models import DocumentStatus
 from questly.core.generation.models import DocumentSummary
-from questly.core.uploads.models import DocumentStatus
 from questly.database.core.tables import KnowledgeDocument as DocumentRow
 from questly.database.session import SessionFactory
 
@@ -21,7 +21,7 @@ class SQLDocumentCatalog:
 
     Owned means `uploaded_by` (ADR-0007 §4.2). Only `ready` Documents are
     listed, because generation reads ingested chunks; a row with no uploader
-    (allowed until CORE-16, ADR-0008) belongs to no library.
+    (ADR-0008 left the column nullable) belongs to no library.
     """
 
     def __init__(self, session_factory: SessionFactory) -> None:

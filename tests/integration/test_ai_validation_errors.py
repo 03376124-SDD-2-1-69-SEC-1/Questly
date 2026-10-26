@@ -26,7 +26,7 @@ async def client():
     [
         ("/api/v1/topics", {"name": " "}),
         ("/api/v1/classrooms/1/drafts", {"prompt": "", "difficulty": "private input"}),
-        ("/api/v1/uploads", {}),
+        ("/api/v1/documents", {}),
     ],
 )
 async def test_validation_envelope_is_consistent_across_modules(client, path, payload):
@@ -67,7 +67,7 @@ async def test_openapi_documents_shared_validation_envelope(client):
     for path in (
         "/api/v1/topics",
         "/api/v1/classrooms/{classroom_id}/drafts",
-        "/api/v1/uploads",
+        "/api/v1/documents",
     ):
         schema = document["paths"][path]["post"]["responses"]["422"]["content"][
             "application/json"

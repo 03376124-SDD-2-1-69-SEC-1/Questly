@@ -210,11 +210,11 @@ def seed_user(
     )
 
 
-VERIFY_PATH = re.compile(r"/verify\?token=[\w-]+")
+VERIFY_PATH = re.compile(r"https?://[^\s]+/verify\?token=[\w-]+")
 
 
 def verification_path(mailer: StubEmailSender) -> str:
-    """The `/verify?token=...` link in the newest email `mailer` recorded."""
+    """The full verification URL in the newest email `mailer` recorded."""
     match = VERIFY_PATH.search(mailer.messages[-1].body)
     assert match is not None, mailer.messages[-1].body
     return match.group(0)

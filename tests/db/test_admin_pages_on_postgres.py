@@ -17,7 +17,7 @@ from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
 from questly.main import create_app
 from tests.fakes.app import fake_settings
-from tests.fakes.uploads import FakeObjectStorage
+from tests.fakes.documents import FakeObjectStorage
 from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import asgi_client, log_in, post_form
 

@@ -33,8 +33,9 @@ from questly.integrations.email import StubEmailSender
 from questly.main import create_app
 from tests.fakes.app import fake_settings
 from tests.fakes.auth import verification_path
-from tests.fakes.uploads import FakeObjectStorage
+from tests.fakes.documents import FakeObjectStorage
 from tests.fakes.vector import FakeVectorRepository
+from tests.integration.forms import asgi_client, log_in
 
 pytestmark = pytest.mark.postgres
 
@@ -299,3 +300,52 @@ def test_admin_model_change_reaches_the_generation_client(
         assert create.call_args.kwargs["model"] == "chosen/by-admin"
     finally:
         settings_repository.update_ai_settings(original_settings)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("empty_core_tables")
+async def test_uploading_a_document_records_the_logged_in_uploader_in_postgres(
+    postgres_url: str, session_factory: SessionFactory
+) -> None:
+    storage = FakeObjectStorage()
+    app = create_app(
+        settings=replace(fake_settings(), database_url=postgres_url),
+        email_sender=StubEmailSender(),
+        object_storage=storage,
+        vector_repository=FakeVectorRepository(),
+        secure_cookies=False,
+    )
+    SQLAuthRepository(session_factory).create_user(
+        User(
+            email="somchai.p@kmitl.ac.th",
+            full_name="Somchai Prasert",
+            password_hash=hash_password("correct horse battery"),
+            role=Role.INSTRUCTOR,
+            email_verified=True,
+        )
+    )
+    client = asgi_client(app)
+    await log_in(client, "somchai.p@kmitl.ac.th", "correct horse battery")
+
+    response = await client.post(
+        "/api/v1/documents",
+        data={"uploaded_by": "999999"},
+        files={"file": ("lecture.pdf", b"%PDF-1.4 lecture", "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    item = response.json()
+    with session_factory() as session:
+        rows = session.execute(
+            text(
+                "SELECT d.id, d.r2_object_key, u.email "
+                "FROM core.knowledge_documents d JOIN core.users u "
+                "ON u.id = d.uploaded_by"
+            )
+        ).all()
+    assert [tuple(row) for row in rows] == [
+        (item["id"], item["object_key"], "somchai.p@kmitl.ac.th")
+    ]
+    assert item["object_key"] in storage.objects
+    listed = await client.get("/api/v1/documents")
+    assert [row["id"] for row in listed.json()] == [item["id"]]

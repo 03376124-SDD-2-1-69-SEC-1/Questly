@@ -18,9 +18,20 @@ jobs:
     name: Lint & Test
     runs-on: ubuntu-latest
 
-    # เทสที่มาร์ก `postgres` และ `r2` ไม่รันที่นี่ — ต้องต่อ Neon กับ R2 จริงข้ามทวีป
-    # ทำให้ CI ช้าเป็นสิบนาที ให้รันด้วย scripts/run_integration_tests.py
-    # ก่อนเปิด PR ที่แตะ database/, alembic/, tests/db/ หรือ tests/r2/ (README)
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: questly_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d questly_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     # ค่า dummy สำหรับ config/settings ที่ต้องมี env ตอน import แอป
     # unit/architecture ไม่ต่อ DB จริง จึงใส่ค่าปลอมพอให้ import ผ่าน
@@ -29,6 +40,7 @@ jobs:
     env:
       APP_ENV: test
       APP_PORT: 8000
+      POSTGRES_TEST_URL: postgresql+psycopg://postgres:postgres@localhost:5432/questly_test
       DATABASE_URL: postgresql+psycopg://user:pass@localhost:5432/questly_test
       DATABASE_URL_UNPOOLED: postgresql+psycopg://user:pass@localhost:5432/questly_test
       SECRET_KEY: ci-dummy-secret-key
@@ -59,7 +71,17 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
-      # `postgres` และ `r2` ถูกคัดออก เพราะต้องมี Neon กับ R2 จริง
-      # รันแยกด้วย `uv run --env-file .env python -m scripts.run_integration_tests`
+      - name: Apply migrations to the disposable PostgreSQL service
+        env:
+          DATABASE_URL_UNPOOLED: ${{ env.POSTGRES_TEST_URL }}
+        run: uv run alembic upgrade head
+
+      # Other `postgres` and `r2` tests still require the external integration runner.
       - name: Run tests
         run: uv run pytest -q -m "not postgres and not r2"
+
+      - name: Test classroom CSV exports on PostgreSQL
+        env:
+          DATABASE_URL: postgresql+psycopg://ci:ci@not-a-database.invalid/questly
+          DATABASE_URL_UNPOOLED: postgresql+psycopg://ci:ci@not-a-database.invalid/questly
+        run: uv run pytest -q tests/db/test_classroom_exports.py

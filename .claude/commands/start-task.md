@@ -66,6 +66,12 @@ git switch -c <type>/<TASK-ID>-<slug>
 If `git pull` fails or `dev` is behind, stop and report — do not branch from a
 stale `dev`.
 
+Stacked task: when the row depends on a branch that is not merged yet, do not
+run the commands above. Run `git fetch origin`, then
+`git switch -c <type>/<TASK-ID>-<slug> origin/<dependency-branch>`. Later,
+update with `git fetch origin && git rebase origin/<dependency-branch>`; never
+`git pull origin dev` on a stacked branch (AGENTS.md "Stacked branches").
+
 ## Step 4 — Interview
 
 Now follow `.claude/commands/grill-me.md` from its Step 2 onward, using the task

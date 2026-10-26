@@ -78,3 +78,22 @@ def test_three_ready_matches_keep_both_filters() -> None:
 
     assert result.difficulty_relaxed is False
     assert [match.page for match in result.matches] == [1, 2]
+
+
+def test_selected_documents_are_enforced_even_after_difficulty_relaxes() -> None:
+    repository = FakeVectorRepository()
+    _add(repository, 1, topic="graphs", difficulty="hard")
+    _add(repository, 2, topic="graphs", difficulty="easy")
+    _add(repository, 3, topic="graphs", difficulty="easy")
+
+    result = RetrievalService(repository).retrieve(
+        QUERY,
+        embedding_model=MODEL,
+        top_k=3,
+        filters=RetrievalFilters(
+            topic="graphs", difficulty="hard", core_document_ids=(1, 2)
+        ),
+    )
+
+    assert result.difficulty_relaxed is True
+    assert [match.page for match in result.matches] == [1, 2]

@@ -13,9 +13,11 @@ from __future__ import annotations
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from questly.config import Settings
-from questly.core.uploads.models import StoredObject
+from questly.core.documents.models import StoredObject
+from questly.core.documents.ports import ObjectStorageError
 
 
 def build_r2_client(settings: Settings) -> BaseClient:
@@ -40,8 +42,26 @@ class R2ObjectStorage:
 
     def put(self, key: str, data: bytes) -> StoredObject:
         """Store `data` under `key` and report where it landed."""
-        self._client.put_object(Bucket=self._bucket, Key=key, Body=data)
+        try:
+            self._client.put_object(Bucket=self._bucket, Key=key, Body=data)
+        except (BotoCoreError, ClientError) as error:
+            raise ObjectStorageError from error
         return StoredObject(bucket=self._bucket, key=key)
+
+    def get(self, key: str) -> bytes:
+        """Return the bytes stored under `key`."""
+        try:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            return response["Body"].read()
+        except (BotoCoreError, ClientError) as error:
+            raise ObjectStorageError from error
+
+    def delete(self, key: str) -> None:
+        """Remove the object under `key`; S3 treats a missing key as success."""
+        try:
+            self._client.delete_object(Bucket=self._bucket, Key=key)
+        except (BotoCoreError, ClientError) as error:
+            raise ObjectStorageError from error
 
 
 def check_r2(client: BaseClient, bucket: str) -> dict:

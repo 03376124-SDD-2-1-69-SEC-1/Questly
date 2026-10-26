@@ -16,9 +16,17 @@
         <tr>
           <td>{{ sub.attempt }}</td>
           <td>{{ sub.submitted_at | local }}{% if sub.is_late %} {{ badge("Late", tone="danger") }}{% endif %}</td>
+          {% if sub.status.value == "done" %}
           <td>{{ sub.passed_count }}/{{ sub.results | length }}</td>
           <td>{{ sub.score }}/{{ sub.max_score }}</td>
-          <td>{% if sub.version_number < problem.assignment.current_version %}{{ badge("on an older version", tone="warn") }}{% elif loop.first %}{{ badge("counted", tone="ok") }}{% else %}—{% endif %}</td>
+          {% elif sub.status.value == "failed" %}
+          <td>{{ badge("Not judged", tone="danger") }}</td>
+          <td>—</td>
+          {% else %}
+          <td>{{ badge("Judging", tone="warn") }}</td>
+          <td>—</td>
+          {% endif %}
+          <td>{% if sub.status.value == "failed" %}does not count{% elif sub.version_number < problem.assignment.current_version %}{{ badge("on an older version", tone="warn") }}{% elif view.counted and sub.id == view.counted.id %}{{ badge("counted", tone="ok") }}{% else %}—{% endif %}</td>
           <td class="text-right"><a class="link whitespace-nowrap" href="{{ url }}?tab=history&attempt={{ sub.attempt }}">View code</a></td>
         </tr>
         {% endfor %}
@@ -30,7 +38,7 @@
   {% endif %}
   {% if shown %}
   <section class="card mt-4 gap-3" data-attempt="{{ shown.attempt }}" aria-labelledby="shown-title">
-    <h2 class="h2" id="shown-title">Attempt {{ shown.attempt }} · score {{ shown.score }}/{{ shown.max_score }}</h2>
+    <h2 class="h2" id="shown-title">Attempt {{ shown.attempt }} · {% if shown.status.value == "done" %}score {{ shown.score }}/{{ shown.max_score }}{% elif shown.status.value == "failed" %}not judged{% else %}judging…{% endif %}</h2>
     <pre class="code-preview">{{ shown.code }}</pre>
     {{ results_table(shown.results, problem.assignment.settings.show_hidden_names) }}
   </section>

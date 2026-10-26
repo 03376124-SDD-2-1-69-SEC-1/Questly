@@ -45,6 +45,7 @@ from questly.core.assignments.service import (
     VersionNotFoundError,
 )
 from questly.core.auth.current import current_actor
+from questly.core.classrooms.csv_export import csv_response
 
 router = APIRouter(prefix="/api/v1/assignments", tags=["assignments"])
 classroom_router = APIRouter(prefix="/api/v1/classrooms", tags=["assignments"])
@@ -352,4 +353,27 @@ def summary(request: Request, classroom_id: int) -> SummaryResponse:
         passed=result.passed,
         total=result.total,
         avg_score=result.avg_score,
+    )
+
+
+@classroom_router.get("/{classroom_id}/summary.csv")
+def export_classroom_summary(request: Request, classroom_id: int) -> Response:
+    """Export the Instructor's classroom score table as CSV."""
+    with domain_errors():
+        result = assignment_service(request).export_summary(
+            current_actor(request), classroom_id
+        )
+
+    return csv_response(
+        f"classroom-{classroom_id}-summary.csv",
+        ["Student Number", "Student Name", *result.problem_titles, "Total"],
+        (
+            [
+                "" if row.student_number is None else row.student_number,
+                row.student_name,
+                *["" if score is None else score for score in row.scores],
+                row.total,
+            ]
+            for row in result.score_table
+        ),
     )

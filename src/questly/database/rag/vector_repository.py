@@ -8,7 +8,7 @@ credentials or create an engine.
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 
-from sqlalchemy import insert, literal, select
+from sqlalchemy import delete, insert, literal, select
 from sqlalchemy.engine import RowMapping, make_url
 from sqlalchemy.exc import (
     ArgumentError,
@@ -61,6 +61,24 @@ class PostgresVectorRepository:
 
     def __init__(self, session_factory: SessionFactory) -> None:
         self._session_factory = session_factory
+
+    def delete_source_by_core_document_id(self, core_document_id: int) -> None:
+        """Delete one source; its chunks go with it through ON DELETE CASCADE."""
+        statement = delete(SOURCE_TABLE).where(
+            SOURCE_TABLE.c.core_document_id == core_document_id
+        )
+        with self._session() as session:
+            try:
+                session.execute(statement)
+                session.commit()
+            except OperationalError as exc:
+                session.rollback()
+                raise VectorRepositoryUnavailableError(
+                    "vector storage operation failed"
+                ) from exc
+            except SQLAlchemyError as exc:
+                session.rollback()
+                raise VectorRepositoryError("vector storage operation failed") from exc
 
     def create_source_with_chunks(
         self,
@@ -240,6 +258,10 @@ def _filtered_search_statement(
     if filters.difficulty is not None:
         statement = statement.where(
             SOURCE_TABLE.c["metadata"]["difficulty"].astext == filters.difficulty
+        )
+    if filters.core_document_ids is not None:
+        statement = statement.where(
+            SOURCE_TABLE.c.core_document_id.in_(filters.core_document_ids)
         )
     return statement.order_by(score.desc(), CHUNK_TABLE.c.id.asc()).limit(limit)
 

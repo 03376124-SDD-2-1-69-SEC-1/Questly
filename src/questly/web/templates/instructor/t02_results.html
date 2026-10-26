@@ -28,14 +28,14 @@
   {% if notified %}
     {% call alert(state="T-02-notified") %}{{ icon("check", 18) }}Students were notified about this problem.{% endcall %}
   {% endif %}
-  {% if not view.submitted %}
+  {% if not view.rows | selectattr("listed") | list %}
     {% call empty_state("No submissions yet", "Published " ~ (problem.posting.published_at | local) ~ " · deadline " ~ (problem.posting.schedule.deadline | local) ~ " · " ~ view.rows | length ~ " students", state="T-02c") %}
       {{ action_form(url ~ "/notify", "Notify students") }}
     {% endcall %}
   {% else %}
   {% call stats_strip() %}
     {{ stat_cell("Submitted", view.submitted | length ~ " / " ~ view.rows | length, "send") }}
-    {{ stat_cell("Average score", "%.1f" | format(view.average_score), "chart") }}
+    {{ stat_cell("Average score", "—" if view.average_score is none else "%.1f" | format(view.average_score), "chart") }}
     {{ stat_cell("All tests passed", view.all_passed, "check") }}
     {{ stat_cell("Late", view.late, "clock") }}
   {% endcall %}
@@ -49,7 +49,7 @@
           {{ button("Search", size="sm") }}
         </form>
       </div>
-      {% set listed = view.shown | selectattr("counted") | list %}
+      {% set listed = view.shown | selectattr("listed") | list %}
       {% if not listed %}
       {% call empty_state("No students match “" ~ view.query ~ "”" if view.query else "No submissions to show", "Search by part of a name or a student ID.", state="T-02-search") %}
         {{ link_button(url, "Clear search") }}
@@ -61,16 +61,22 @@
           {% for row in listed %}
           <tr{% if panel and panel.student_id == row.student_id %} class="selected-row"{% endif %}>
             <td><div class="cell-person">{{ avatar(row.name, "sm") }}<div><strong class="text-ink">{{ row.name }}</strong>{% if row.student_number %}<small>{{ row.student_number }}</small>{% endif %}</div></div></td>
-            <td>{{ row.counted.submitted_at | local }}{% if row.counted.is_late %} {{ badge("Late", tone="danger") }}{% endif %}{% if row.counted.version_number < problem.assignment.current_version %} {{ badge("Resubmit needed", tone="accent") }}{% endif %}</td>
+            {% if row.counted %}
+            <td>{{ row.counted.submitted_at | local }}{% if row.counted.is_late %} {{ badge("Late", tone="danger") }}{% endif %}{% if row.counted.version_number < problem.assignment.current_version %} {{ badge("Resubmit needed", tone="accent") }}{% endif %}{% if row.counted.recovery.value != "none" %} {{ badge("Recovered", tone="danger") }}{% endif %}{% if row.pending %} {{ badge("Judging", tone="warn") }}{% endif %}</td>
             <td>{{ badge(row.counted.passed_count ~ "/" ~ (row.counted.results | length), tone="ok" if row.counted.passed_count == (row.counted.results | length) else "warn") }}</td>
             <td class="text-right"><strong class="text-ink">{{ row.counted.score }}</strong></td>
+            {% else %}
+            <td>{{ badge("Judging", tone="warn") }}</td>
+            <td>—</td>
+            <td class="text-right">—</td>
+            {% endif %}
             <td class="text-right"><a class="link whitespace-nowrap" href="{{ url }}?student={{ row.student_id }}">View code</a></td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
       {% endif %}
-      {% set missing = view.shown | rejectattr("counted") | list %}
+      {% set missing = view.shown | rejectattr("listed") | list %}
       {% if missing %}<p class="px-5 pb-4 text-xxs text-soft">{{ missing | length }} not submitted: {{ missing | map(attribute="name") | join(", ") }}</p>{% endif %}
     </section>
     <aside>
@@ -84,8 +90,12 @@
           </div>
           {{ link_button(url, "Close", size="sm", variant="soft") }}
         </div>
+        {% if panel.pending %}<p class="hint mt-2">{{ badge("Judging", tone="warn") }} An attempt is being judged.</p>{% endif %}
         {% if panel.counted %}
         {% set sub = panel.counted %}
+        {% if sub.recovery.value != "none" %}
+          {% call alert(tone="danger", state="T-02a-recovered") %}<span class="flex-1">Judging attempt {{ sub.attempt }} was interrupted before it finished. It was submitted {{ sub.submitted_at | local }}; Late is decided from this time. {% if sub.recovery.value == "reconnected" %}The result was reconnected to the original run.{% else %}The code was judged again.{% endif %}</span>{% endcall %}
+        {% endif %}
         <p class="hint mt-2">attempt {{ sub.attempt }} of {{ panel.attempts }} · {{ sub.submitted_at | local }}{% if sub.is_late %} · late{% endif %}</p>
         <div class="score-line">
           {{ badge(sub.passed_count ~ " of " ~ (sub.results | length) ~ " tests", tone="ok" if sub.passed_count == (sub.results | length) else "warn") }}
@@ -100,7 +110,7 @@
           <li class="muted">None.</li>
           {% endfor %}
         </ul>
-        {% else %}
+        {% elif not panel.pending %}
         <p class="muted mt-3">No submissions from this student yet.</p>
         {% endif %}
       </section>

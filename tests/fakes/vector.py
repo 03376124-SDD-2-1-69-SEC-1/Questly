@@ -28,6 +28,25 @@ class FakeVectorRepository:
         self._next_source_id = 1
         self._next_chunk_id = 1
 
+    def delete_source_by_core_document_id(self, core_document_id: int) -> None:
+        """Remove a source and all its chunks; ignore unknown documents."""
+        source_id = self._source_ids_by_core_document.get(core_document_id)
+        if source_id is None:
+            return
+        del self._sources[source_id]
+        del self._source_ids_by_core_document[core_document_id]
+        self._chunks = {
+            chunk_id: chunk
+            for chunk_id, chunk in self._chunks.items()
+            if chunk.source_id != source_id
+        }
+
+    def chunk_ids_for_source(self, source_id: int) -> set[int]:
+        """Inspect stored chunks for adapter-contract tests."""
+        return {
+            chunk.id for chunk in self._chunks.values() if chunk.source_id == source_id
+        }
+
     def create_source_with_chunks(
         self,
         source: NewKnowledgeSource,
@@ -122,6 +141,10 @@ class FakeVectorRepository:
             and (
                 filters.difficulty is None
                 or source.metadata.get("difficulty") == filters.difficulty
+            )
+            and (
+                filters.core_document_ids is None
+                or source.core_document_id in filters.core_document_ids
             )
         ]
         matches.sort(key=lambda match: (-match.score, match.chunk_id))

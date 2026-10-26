@@ -382,6 +382,9 @@ ACTOR_SLICES = (
     "documents",
 )
 ROLE_ATTRIBUTES = {"role", "instructor_id"}
+# Background judging of a Submission `submit` already authorized: only the
+# BackgroundTask a Submit schedules and the sweeper call these (ADR-0011).
+WORKER_ENTRY_POINTS = {("SubmissionService", "judge"), ("SubmissionService", "recover")}
 
 
 def _api_modules() -> list[Path]:
@@ -546,6 +549,8 @@ def test_classroom_use_cases_take_the_actor_first() -> None:
                 if not isinstance(method, ast.FunctionDef):
                     continue
                 if method.name.startswith("_"):
+                    continue
+                if (node.name, method.name) in WORKER_ENTRY_POINTS:
                     continue
                 parameters = [argument.arg for argument in method.args.args]
                 if parameters[1:2] != ["actor"]:

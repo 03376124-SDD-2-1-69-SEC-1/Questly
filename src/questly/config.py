@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -18,12 +19,28 @@ DEFAULT_MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
 
 REQUIRED_DRIVER = "postgresql+psycopg"
 
+DEFAULT_BASE_URL = "http://localhost:8000"
+PRODUCTION = "production"
+
 
 class MissingConfigurationError(RuntimeError):
     """Raised when a required environment variable is absent or unusable."""
 
 
 DEFAULT_GENERATION_MODEL = "poolside/laguna-s-2.1:free"
+# OPS-26 (ADR-0012) measured six `:free` models on three Thai seed problems;
+# laguna-s was the only one that parsed every reply and whose solution ran
+# (exit 0) on every one of its own inputs. laguna-xs and nemotron-3-super
+# below were also measured, and scored worse — why they are here anyway, and
+# the lighter options the team may still pick, are in the ADR's
+# "Open question: allowlist membership". Re-run
+# scripts/compare_generation_models.py when OpenRouter's free tier changes.
+# Do not add other providers here: ADR-0009.
+DEFAULT_GENERATION_ALLOWLIST = (
+    DEFAULT_GENERATION_MODEL,
+    "poolside/laguna-xs-2.1:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+)
 # Changing it means re-embedding every chunk, and the replacement must return
 # 768 dimensions (VECTOR(768) in `rag`).
 DEFAULT_EMBEDDING_MODEL = "google/gemini-embedding-001"
@@ -42,9 +59,16 @@ class Settings:
     # OpenRouter — optional: empty string means demo/stub mode
     openrouter_api_key: str = ""
     generation_model: str = DEFAULT_GENERATION_MODEL
-    # Models an Admin may pick on A-01; defaults to just generation_model.
-    generation_model_allowlist: tuple[str, ...] = (DEFAULT_GENERATION_MODEL,)
+    # Models an Admin may pick on A-01; the default comes from the OPS-26
+    # comparison (ADR-0012) and always contains generation_model.
+    generation_model_allowlist: tuple[str, ...] = DEFAULT_GENERATION_ALLOWLIST
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    # Judge0 CE: empty URL means no Judge0, and Run/Submit use the stub runner.
+    judge0_url: str = ""
+    judge0_auth_token: str = ""
+    # Public origin that email links are built on:
+    # {base_url}/verify and {base_url}/classes/...
+    base_url: str = DEFAULT_BASE_URL
 
 
 def _required(variable: str) -> str:
@@ -84,11 +108,58 @@ def _database_url() -> str:
     return url
 
 
+def _is_http_origin(value: str) -> bool:
+    """True for http(s)://host[:port][/path] with no userinfo, query or fragment."""
+    if any(character.isspace() for character in value):
+        return False
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    if parts.username is not None or parts.query or parts.fragment:
+        return False
+    try:
+        _ = parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
+        return False
+    return True
+
+
+def _base_url() -> str:
+    """Return the public origin for email links, without a trailing slash.
+
+    Development and tests fall back to localhost. Production has no safe
+    default, so an unset BASE_URL stops the app at startup rather than mailing
+    links that point at localhost. A value without an http(s) scheme and a
+    host would produce relative or broken links, so it is refused everywhere.
+    """
+    raw = os.environ.get("BASE_URL", "").strip()
+    if not raw:
+        app_env = os.environ.get("APP_ENV", "").strip().lower()
+        if app_env == PRODUCTION:
+            raise MissingConfigurationError(
+                "BASE_URL is not set. It is required when APP_ENV=production: "
+                "set it to the app's public origin, e.g. https://questly.example.com."
+            )
+        return DEFAULT_BASE_URL
+    if not _is_http_origin(raw):
+        raise MissingConfigurationError(
+            "BASE_URL must start with http:// or https:// and name a host, "
+            f"got {raw!r}."
+        )
+    return raw.rstrip("/")
+
+
 def _model_allowlist(generation_model: str) -> tuple[str, ...]:
-    """GENERATION_MODEL_ALLOWLIST, comma-separated; unset means GENERATION_MODEL."""
+    """GENERATION_MODEL_ALLOWLIST, comma-separated.
+
+    Unset, it falls back to DEFAULT_GENERATION_ALLOWLIST (ADR-0012) when the
+    configured model is one of those, and to just generation_model otherwise.
+    """
     raw = os.environ.get("GENERATION_MODEL_ALLOWLIST", "")
     models = tuple(model.strip() for model in raw.split(",") if model.strip())
     if not models:
+        if generation_model in DEFAULT_GENERATION_ALLOWLIST:
+            return DEFAULT_GENERATION_ALLOWLIST
         return (generation_model,)
     return models
 
@@ -115,4 +186,7 @@ def get_settings() -> Settings:
             os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
             or DEFAULT_EMBEDDING_MODEL
         ),
+        judge0_url=os.environ.get("JUDGE0_URL", "").strip(),
+        judge0_auth_token=os.environ.get("JUDGE0_AUTH_TOKEN", "").strip(),
+        base_url=_base_url(),
     )

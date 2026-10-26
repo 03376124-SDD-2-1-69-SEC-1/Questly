@@ -55,6 +55,7 @@ Classroom and Assignment are not copied; they come from the Posting by join.
 ADR-0007 §5.1 also lists a `status`; it is left out, because judging is
 synchronous and a Submission is stored only once judged. Asynchronous Submit
 waits on ADR-0007 open question 1, and that task adds the column.
+Superseded by ADR-0011, which adds `status` for asynchronous Submit.
 
 ## Unposting deletes the Posting's Submissions
 

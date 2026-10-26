@@ -40,3 +40,6 @@ setup-branch-protection.sh
 plan.md
 Prompt model bakeoff.md
 Prompt ui tasks.md
+
+# Playwright UI walk output (screenshots, videos) — see playwright/README.md
+playwright/out/

@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from questly.core.auth.csrf import require_csrf
@@ -14,19 +14,39 @@ from questly.core.submissions.models import (
     InstructorTab,
     PostingClosedError,
     ResubmissionNotAllowedError,
+    RunnerUnavailableError,
     RunReport,
     StudentSolveView,
     StudentTab,
+    SubmissionPendingError,
 )
 from questly.core.submissions.service import NOT_VISIBLE, SubmissionService
 
 router = APIRouter(tags=["pages"], include_in_schema=False)
 
-_REFUSALS = {
-    ClassroomArchivedError: "This classroom is archived. Submissions are closed.",
-    EmptyCodeError: "Write some code first.",
-    PostingClosedError: "Submissions are closed for this problem.",
-    ResubmissionNotAllowedError: "This problem allows one submission only.",
+_REFUSALS: dict[type[Exception], tuple[str, int]] = {
+    ClassroomArchivedError: (
+        "This classroom is archived. Submissions are closed.",
+        status.HTTP_409_CONFLICT,
+    ),
+    EmptyCodeError: ("Write some code first.", status.HTTP_422_UNPROCESSABLE_CONTENT),
+    PostingClosedError: (
+        "Submissions are closed for this problem.",
+        status.HTTP_409_CONFLICT,
+    ),
+    ResubmissionNotAllowedError: (
+        "This problem allows one submission only.",
+        status.HTTP_409_CONFLICT,
+    ),
+    SubmissionPendingError: (
+        "Your last submission is still being judged.",
+        status.HTTP_409_CONFLICT,
+    ),
+    RunnerUnavailableError: (
+        "The code runner is unavailable right now, so nothing was saved. "
+        "Please try again in a moment.",
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+    ),
 }
 
 
@@ -141,17 +161,20 @@ def run_or_submit(
     request: Request,
     classroom_id: int,
     assignment_id: int,
+    background_tasks: BackgroundTasks,
     csrf_token: Annotated[str, Form()] = "",
     code: Annotated[str, Form()] = "",
     action: Annotated[str, Form()] = "run",
 ) -> HTMLResponse | RedirectResponse:
-    """One form, two buttons (ADR-0007 §5.3): Run renders, Submit redirects."""
+    """One form, two buttons (ADR-0007 §5.3): Run renders, Submit redirects
+    to S-02, which shows S-02a until the background judging is done."""
     require_csrf(request, csrf_token)
     actor = current_actor(request)
     service = _service(request)
     try:
         if action == "submit":
-            service.submit(actor, classroom_id, assignment_id, code)
+            submission = service.submit(actor, classroom_id, assignment_id, code)
+            background_tasks.add_task(service.judge, submission.id)
             return RedirectResponse(
                 f"/classes/{classroom_id}/assignments/{assignment_id}?submitted=1",
                 status_code=status.HTTP_303_SEE_OTHER,
@@ -163,15 +186,8 @@ def run_or_submit(
         view = _page_view(request, classroom_id, assignment_id)
         if not isinstance(view, StudentSolveView):
             raise HTTPException(status_code=403) from None
-        return _solve(
-            request,
-            view,
-            code=code,
-            error=_REFUSALS[type(refusal)],
-            status_code=status.HTTP_409_CONFLICT
-            if type(refusal) is not EmptyCodeError
-            else status.HTTP_422_UNPROCESSABLE_ENTITY,
-        )
+        message, status_code = _REFUSALS[type(refusal)]
+        return _solve(request, view, code=code, error=message, status_code=status_code)
     view = _page_view(request, classroom_id, assignment_id)
     if not isinstance(view, StudentSolveView):
         raise HTTPException(status_code=403)
