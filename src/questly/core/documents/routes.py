@@ -123,7 +123,8 @@ def create_document(
         document = service.store(actor, filename=filename, data=data)
         if document.id is None:
             raise RuntimeError("Document repository returned an unpersisted document")
-        background_tasks.add_task(service.ingest, actor, document.id)
+        if service.ingestion_enabled:
+            background_tasks.add_task(service.ingest, actor, document.id)
         return _response(service.get(actor, document.id))
     except UploadTooLargeError:
         _raise_too_large()
@@ -178,5 +179,6 @@ def retry_document(
         _raise_not_found()
     except DocumentNotRetryableError:
         _raise_not_retryable()
-    background_tasks.add_task(service.ingest, actor, document_id)
+    if service.ingestion_enabled:
+        background_tasks.add_task(service.ingest, actor, document_id)
     return _response(item)

@@ -68,6 +68,7 @@ class DocumentService:
         self._storage = storage
         self._repository = repository
         self._ingestor = ingestor
+        self.ingestion_enabled = ingestor is not None
         self.max_upload_size_bytes = max_upload_size_bytes
 
     def store(self, actor: Actor, *, filename: str, data: bytes) -> KnowledgeDocument:

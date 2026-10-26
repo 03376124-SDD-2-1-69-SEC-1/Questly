@@ -113,7 +113,8 @@ def upload_document(
         return _page(request, actor, error="empty", status_code=422)
     except UploadTooLargeError:
         return _page(request, actor, error="too_large", status_code=413)
-    background_tasks.add_task(service.ingest, actor, document.id)
+    if service.ingestion_enabled:
+        background_tasks.add_task(service.ingest, actor, document.id)
     return _see_other("/documents?notice=uploaded")
 
 
