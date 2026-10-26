@@ -150,8 +150,7 @@ class Draft:
 class GenerationStep(StrEnum):
     """Where a running generation is, in the order T-03c lists them.
 
-    `RETRIEVING` is reserved for AI-05: retrieval is not wired into generation
-    yet, so `PIPELINE` leaves it out and no page shows a step that never runs.
+    Retrieval is shown only when the Instructor selected Documents.
     """
 
     RETRIEVING = "retrieving"
@@ -162,6 +161,7 @@ class GenerationStep(StrEnum):
 
 
 PIPELINE = (
+    GenerationStep.RETRIEVING,
     GenerationStep.CALLING_MODEL,
     GenerationStep.VALIDATING,
     GenerationStep.RUNNING_SOLUTION,
@@ -283,6 +283,7 @@ class GenerationJob:
 
     def progress(self, now: datetime) -> JobProgress:
         seconds = {timing.step: timing.seconds for timing in self.completed}
+        pipeline = PIPELINE if self.form.document_ids else PIPELINE[1:]
         steps = [
             StepProgress(step, StepState.DONE, seconds[step])
             if step in seconds
@@ -291,7 +292,7 @@ class GenerationJob:
                 StepState.ACTIVE if step is self.step else StepState.PENDING,
                 None,
             )
-            for step in PIPELINE
+            for step in pipeline
         ]
         return JobProgress(
             job=self,

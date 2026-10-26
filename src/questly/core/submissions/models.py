@@ -32,6 +32,9 @@ class ExecutionStatus(StrEnum):
     RUNTIME_ERROR = "runtime_error"
 
 
+RUNNER_NOT_CONFIGURED_STDERR = "The code runner is not configured."
+
+
 @dataclass(frozen=True, slots=True)
 class Execution:
     """What the CodeRunner reports for one program run on one input."""
@@ -40,6 +43,14 @@ class Execution:
     stdout: str
     stderr: str
     time_seconds: float
+
+    @property
+    def is_runner_not_configured(self) -> bool:
+        """True when no runner ran the program, as opposed to the program failing."""
+        return (
+            self.status is ExecutionStatus.RUNTIME_ERROR
+            and self.stderr == RUNNER_NOT_CONFIGURED_STDERR
+        )
 
 
 @dataclass(frozen=True, slots=True)

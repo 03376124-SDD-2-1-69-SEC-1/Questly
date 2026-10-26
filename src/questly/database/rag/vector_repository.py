@@ -259,6 +259,10 @@ def _filtered_search_statement(
         statement = statement.where(
             SOURCE_TABLE.c["metadata"]["difficulty"].astext == filters.difficulty
         )
+    if filters.core_document_ids is not None:
+        statement = statement.where(
+            SOURCE_TABLE.c.core_document_id.in_(filters.core_document_ids)
+        )
     return statement.order_by(score.desc(), CHUNK_TABLE.c.id.asc()).limit(limit)
 
 
