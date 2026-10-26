@@ -2,7 +2,15 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -88,6 +96,7 @@ def documents_page(request: Request, notice: str = "", error: str = "") -> HTMLR
 def upload_document(
     request: Request,
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     csrf_token: Annotated[str, Form()] = "",
 ) -> Response:
     require_csrf(request, csrf_token)
@@ -99,11 +108,12 @@ def upload_document(
 
     data = file.file.read(service.max_upload_size_bytes + 1)
     try:
-        service.store(actor, filename=file.filename, data=data)
+        document = service.store(actor, filename=file.filename, data=data)
     except EmptyUploadError:
         return _page(request, actor, error="empty", status_code=422)
     except UploadTooLargeError:
         return _page(request, actor, error="too_large", status_code=413)
+    background_tasks.add_task(service.ingest, actor, document.id)
     return _see_other("/documents?notice=uploaded")
 
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from questly.core.documents.models import (
     DocumentLibraryItem,
@@ -10,7 +11,7 @@ from questly.core.documents.models import (
     KnowledgeDocument,
     StoredObject,
 )
-from questly.core.documents.ports import ObjectStorageError
+from questly.core.documents.ports import DocumentIngestionError, ObjectStorageError
 
 FAKE_BUCKET = "fake-bucket"
 
@@ -152,3 +153,38 @@ class FakeKnowledgeDocumentRepository:
             document=self._items[document_id],
             used_in=self._usage[document_id],
         )
+
+
+@dataclass(frozen=True, slots=True)
+class IngestRequest:
+    """What one `DocumentIngestor.ingest` call received."""
+
+    document_id: int
+    object_key: str
+    data: bytes
+    metadata: Mapping[str, str]
+
+
+@dataclass(slots=True)
+class FakeDocumentIngestor:
+    """Record ingest calls; raise `failure` from each one when set."""
+
+    failure: Exception | None = None
+    requests: list[IngestRequest] = field(default_factory=list)
+
+    def ingest(
+        self,
+        *,
+        document_id: int,
+        object_key: str,
+        data: bytes,
+        metadata: Mapping[str, str],
+    ) -> None:
+        self.requests.append(IngestRequest(document_id, object_key, data, metadata))
+        if self.failure is not None:
+            raise self.failure
+
+
+def failing_ingestor() -> FakeDocumentIngestor:
+    """An ingestor that rejects every document the way the port's adapter does."""
+    return FakeDocumentIngestor(failure=DocumentIngestionError("unreadable PDF"))

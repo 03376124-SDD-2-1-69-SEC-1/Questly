@@ -2,7 +2,15 @@
 
 from typing import NoReturn
 
-from fastapi import APIRouter, HTTPException, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
 from questly.core.auth.current import current_actor
 from questly.core.documents.models import DocumentLibraryItem, KnowledgeDocument
@@ -99,8 +107,10 @@ def _raise_delete_failed() -> NoReturn:
     response_model=KnowledgeDocumentResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_document(request: Request, file: UploadFile) -> KnowledgeDocumentResponse:
-    """Store the upload for the authenticated Instructor."""
+def create_document(
+    request: Request, file: UploadFile, background_tasks: BackgroundTasks
+) -> KnowledgeDocumentResponse:
+    """Store the upload for the authenticated Instructor, then ingest it."""
     service = _service(request)
     actor = current_actor(request)
     service.authorize(actor)
@@ -113,6 +123,7 @@ def create_document(request: Request, file: UploadFile) -> KnowledgeDocumentResp
         document = service.store(actor, filename=filename, data=data)
         if document.id is None:
             raise RuntimeError("Document repository returned an unpersisted document")
+        background_tasks.add_task(service.ingest, actor, document.id)
         return _response(service.get(actor, document.id))
     except UploadTooLargeError:
         _raise_too_large()
@@ -155,11 +166,17 @@ def delete_document(request: Request, document_id: int) -> Response:
 
 
 @router.post("/{document_id}/retry", response_model=KnowledgeDocumentResponse)
-def retry_document(request: Request, document_id: int) -> KnowledgeDocumentResponse:
-    """Queue a failed document for ingestion again."""
+def retry_document(
+    request: Request, document_id: int, background_tasks: BackgroundTasks
+) -> KnowledgeDocumentResponse:
+    """Return a failed document to uploaded, then ingest it again."""
+    service = _service(request)
+    actor = current_actor(request)
     try:
-        return _response(_service(request).retry(current_actor(request), document_id))
+        item = service.retry(actor, document_id)
     except KnowledgeDocumentNotFoundError:
         _raise_not_found()
     except DocumentNotRetryableError:
         _raise_not_retryable()
+    background_tasks.add_task(service.ingest, actor, document_id)
+    return _response(item)

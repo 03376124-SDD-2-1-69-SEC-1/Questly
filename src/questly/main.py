@@ -35,6 +35,9 @@ from questly.ai.client import (
     VectorCitationRetriever,
 )
 from questly.ai.embeddings.openrouter import create_openrouter_embedding_provider
+from questly.ai.ingestion.document_ingestor import PdfDocumentIngestor
+from questly.ai.ingestion.pdf_extractor import PyMuPDFPageExtractor
+from questly.ai.ingestion.pipeline import PdfIngestionService
 from questly.ai.quota import OpenRouterProviderQuota, StubProviderQuota
 from questly.ai.retrieval.service import RetrievalService
 from questly.api_errors import ApplicationErrorResponse
@@ -73,9 +76,13 @@ from questly.core.classrooms.routes import router as classroom_router
 from questly.core.classrooms.service import ClassroomService
 from questly.core.classrooms.stats import ComputedClassroomStats
 from questly.core.documents.pages import router as document_page_router
-from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
+from questly.core.documents.ports import (
+    DocumentIngestor,
+    KnowledgeDocumentRepository,
+    ObjectStorage,
+)
 from questly.core.documents.routes import router as document_router
-from questly.core.documents.service import DocumentService
+from questly.core.documents.service import DocumentService, fail_stuck_ingestions
 from questly.core.generation.pages import router as generation_page_router
 from questly.core.generation.ports import (
     DocumentCatalog,
@@ -195,6 +202,7 @@ def create_app(
     posting_stats: PostingStats | None = None,
     knowledge_document_repository: KnowledgeDocumentRepository | None = None,
     object_storage: ObjectStorage | None = None,
+    document_ingestor: DocumentIngestor | None = None,
     generation_client: GenerationClient | None = None,
     provider_quota: ProviderQuota | None = None,
     generation_job_store: GenerationJobStore | None = None,
@@ -393,7 +401,8 @@ def create_app(
 
     if vector_repository is None:
         vector_repository = PostgresVectorRepository(use_session_factory())
-    application.state.vector_service = VectorService(vector_repository)
+    vector_service = VectorService(vector_repository)
+    application.state.vector_service = vector_service
 
     if generation_client is None:
         if use_settings().openrouter_api_key:
@@ -438,10 +447,27 @@ def create_app(
         knowledge_document_repository = SQLKnowledgeDocumentRepository(
             use_session_factory()
         )
+    # Without an OpenRouter key nothing is ingested and uploads stay `uploaded`.
+    if document_ingestor is None and use_settings().openrouter_api_key:
+        document_ingestor = PdfDocumentIngestor(
+            PdfIngestionService(
+                PyMuPDFPageExtractor(),
+                create_openrouter_embedding_provider(
+                    use_settings().openrouter_api_key,
+                    use_settings().embedding_model,
+                ),
+                vector_service,
+            ),
+            vector_service,
+        )
     application.state.document_service = DocumentService(
         object_storage,
         knowledge_document_repository,
         max_upload_size_bytes=use_settings().max_upload_size_bytes,
+        ingestor=document_ingestor,
+    )
+    application.state.fail_stuck_ingestions = functools.partial(
+        fail_stuck_ingestions, knowledge_document_repository
     )
 
     application.include_router(topic_router)
@@ -593,13 +619,17 @@ def start_sweeper(recover: Callable[[], None]) -> None:
 
 @functools.cache
 def production_app() -> FastAPI:
-    """The served app, and the one judging sweeper for this process.
+    """The served app, its one judging sweeper and its ingestion recovery.
 
     Started here and never in `create_app`, so tests build apps without
-    threads; a lifespan hook would need `async def`, which this codebase
-    does not use.
+    threads or startup writes; a lifespan hook would need `async def`, which
+    this codebase does not use.
     """
     application = create_app()
+    try:
+        application.state.fail_stuck_ingestions()
+    except Exception:
+        logger.exception("could not fail documents left ingesting")
     start_sweeper(application.state.submission_service.recover)
     return application
 
