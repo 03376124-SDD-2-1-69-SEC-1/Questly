@@ -142,6 +142,10 @@ class FakeVectorRepository:
                 filters.difficulty is None
                 or source.metadata.get("difficulty") == filters.difficulty
             )
+            and (
+                filters.core_document_ids is None
+                or source.core_document_id in filters.core_document_ids
+            )
         ]
         matches.sort(key=lambda match: (-match.score, match.chunk_id))
         return matches[:limit]

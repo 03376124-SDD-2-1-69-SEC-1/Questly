@@ -44,7 +44,10 @@ class RetrievalService:
             embedding,
             embedding_model=embedding_model,
             limit=top_k,
-            filters=RetrievalFilters(topic=filters.topic),
+            filters=RetrievalFilters(
+                topic=filters.topic,
+                core_document_ids=filters.core_document_ids,
+            ),
         )
         return RetrievalResult(tuple(broader), difficulty_relaxed=True)
 
@@ -80,6 +83,19 @@ def _validate(
             not isinstance(value, str) or not value.strip() or value != value.strip()
         ):
             raise RetrievalValidationError("filters must be non-empty text")
+    ids = filters.core_document_ids
+    if ids is not None and (
+        not isinstance(ids, tuple)
+        or not ids
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 1
+            for value in ids
+        )
+        or len(ids) != len(set(ids))
+    ):
+        raise RetrievalValidationError(
+            "core_document_ids must be unique positive integers"
+        )
 
 
 def _finite_number(value: object) -> bool:
