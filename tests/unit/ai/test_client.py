@@ -150,14 +150,70 @@ def test_parse_response_empty_test_cases_raises() -> None:
         _parse_response(raw)
 
 
-def test_parse_response_rejects_fields_outside_strict_schema() -> None:
+def test_parse_response_ignores_fields_the_model_adds() -> None:
     raw = json.dumps(
         {
             "title": "T",
             "statement": "S",
-            "test_cases": [{"input_data": "1"}, {"input_data": "2"}],
+            "test_cases": [
+                {"input_data": "1", "note": "extra"},
+                {"input_data": "2"},
+            ],
             "reference_solution": "print(input())",
             "unexpected": True,
+        }
+    )
+
+    response = _parse_response(raw).response
+
+    assert [tc.input_data for tc in response.draft.test_cases] == ["1", "2"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(5, "5"), (-3, "-3"), (1.5, "1.5"), ("7", "7")]
+)
+def test_parse_response_accepts_a_bare_number_as_input_data(
+    value: object, expected: str
+) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": value}, {"input_data": "2"}],
+            "reference_solution": "print(input())",
+        }
+    )
+
+    response = _parse_response(raw).response
+
+    assert response.draft.test_cases[0].input_data == expected
+
+
+@pytest.mark.parametrize("value", [True, None, ["1"], {"n": 1}])
+def test_parse_response_rejects_input_data_that_is_not_a_scalar(
+    value: object,
+) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": value}, {"input_data": "2"}],
+            "reference_solution": "print(input())",
+        }
+    )
+
+    with pytest.raises(ValueError, match="does not match assignment draft schema"):
+        _parse_response(raw)
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_parse_response_keeps_two_to_five_test_cases(count: int) -> None:
+    raw = json.dumps(
+        {
+            "title": "T",
+            "statement": "S",
+            "test_cases": [{"input_data": str(i)} for i in range(count)],
+            "reference_solution": "print(input())",
         }
     )
 
@@ -407,6 +463,48 @@ def test_invalid_structured_reply_becomes_generation_failed_error() -> None:
         service._call(GenerationRequest(prompt="find max"), _ignore_step)
 
 
+def test_a_reply_that_misses_the_schema_is_retried_once() -> None:
+    client = _make_client()
+    replies = [_mock_result('{"title": 7}'), _mock_result(_VALID_LLM_RESPONSE)]
+
+    with patch.object(client._client.chat, "send", side_effect=replies) as send:
+        response = client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert response.draft.title == "Find Maximum"
+    assert send.call_count == 2
+    retry_prompt = send.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "Regenerate the entire draft" in retry_prompt
+    assert "title" in retry_prompt
+
+
+def test_a_reply_without_a_solution_is_retried_and_then_succeeds() -> None:
+    client = _make_client()
+    replies = [
+        _mock_result(_NO_SOLUTION_LLM_RESPONSE),
+        _mock_result(_VALID_LLM_RESPONSE),
+    ]
+
+    with patch.object(client._client.chat, "send", side_effect=replies) as send:
+        response = client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert send.call_count == 2
+    assert [tc.expected_output for tc in response.draft.test_cases] == ["5", "42"]
+
+
+def test_a_reply_that_keeps_missing_the_schema_raises_after_the_last_attempt() -> None:
+    client = _make_client()
+
+    with (
+        patch.object(
+            client._client.chat, "send", return_value=_mock_result("not json")
+        ) as send,
+        pytest.raises(ValueError, match="does not match assignment draft schema"),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert send.call_count == 2
+
+
 def test_openrouter_client_citations_are_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _make_client()
 
@@ -532,12 +630,6 @@ def test_openrouter_client_reports_the_stages_it_really_runs() -> None:
         GenerationStep.VALIDATING,
         GenerationStep.RUNNING_SOLUTION,
     ]
-
-
-def test_openrouter_client_skips_running_solution_when_there_is_none() -> None:
-    steps = _steps_of(_make_client(), _NO_SOLUTION_LLM_RESPONSE)
-
-    assert steps == [GenerationStep.CALLING_MODEL, GenerationStep.VALIDATING]
 
 
 def test_a_step_callback_that_raises_stops_before_the_next_stage() -> None:
@@ -824,7 +916,7 @@ def test_stub_runner_does_not_disable_the_copy_similarity_check() -> None:
         {
             "title": "Copy",
             "statement": excerpt,
-            "test_cases": [{"input_data": "1"}],
+            "test_cases": [{"input_data": "1"}, {"input_data": "2"}],
             "reference_solution": _SOLUTION,
         }
     )
