@@ -47,6 +47,25 @@ def _service() -> VectorService:
     return VectorService(FakeVectorRepository())
 
 
+def test_delete_source_removes_its_chunks() -> None:
+    service = _service()
+    service.create_source_with_chunks(
+        _source(core_document_id=42), (_chunk(embedding=_embedding()),)
+    )
+
+    service.delete_source_by_core_document_id(42)
+
+    assert service.search(_embedding(), embedding_model=MODEL, top_k=10) == []
+
+
+@pytest.mark.parametrize("core_document_id", [0, -1, True, 1.5, "1"])
+def test_delete_rejects_invalid_core_document_id(core_document_id: object) -> None:
+    with pytest.raises(VectorValidationError, match="core_document_id"):
+        _service().delete_source_by_core_document_id(  # type: ignore[arg-type]
+            core_document_id
+        )
+
+
 def test_create_source_with_chunks_returns_database_shaped_ids() -> None:
     service = _service()
 

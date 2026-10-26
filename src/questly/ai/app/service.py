@@ -28,6 +28,11 @@ class VectorService:
     def __init__(self, repository: VectorRepository) -> None:
         self._repository = repository
 
+    def delete_source_by_core_document_id(self, core_document_id: int) -> None:
+        """Remove a document's vector source and chunks, if present."""
+        _validate_positive_integer(core_document_id, "core_document_id")
+        self._repository.delete_source_by_core_document_id(core_document_id)
+
     def create_source_with_chunks(
         self,
         source: NewKnowledgeSource,
