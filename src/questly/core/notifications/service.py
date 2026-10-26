@@ -44,12 +44,15 @@ class NotificationService:
         clock: Clock,
         members: ClassroomMembers,
         accounts: UserAccounts,
+        *,
+        base_url: str,
     ) -> None:
         self._repository = repository
         self._email_sender = email_sender
         self._clock = clock
         self._members = members
         self._accounts = accounts
+        self._base_url = base_url.rstrip("/")
 
     def list_for_user(self, user_id: int) -> list[Notification]:
         """List a user's notifications, newest first."""
@@ -119,7 +122,7 @@ class NotificationService:
             self.send_email(
                 to=user.email,
                 subject=subject,
-                body=_member_email(user.full_name, subject, payload),
+                body=_member_email(self._base_url, user.full_name, subject, payload),
             )
 
     def send_email(
@@ -175,12 +178,15 @@ class DueSoonService:
         return sorted(due, key=lambda item: item.deadline)
 
 
-def _member_email(full_name: str, subject: str, payload: NotificationPayload) -> str:
+def _member_email(
+    base_url: str, full_name: str, subject: str, payload: NotificationPayload
+) -> str:
     lines = [f"Hi {full_name},", "", subject]
     if "reason" in payload:
         lines.append(f"Reason from your instructor: {payload['reason']}")
     lines += [
         "",
-        f"/classes/{payload['classroom_id']}/assignments/{payload['assignment_id']}",
+        f"{base_url}/classes/{payload['classroom_id']}"
+        f"/assignments/{payload['assignment_id']}",
     ]
     return "\n".join(lines)

@@ -1,5 +1,6 @@
 """HTTP tests for the notifications API and T-02c "Notify students", per role."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,7 +14,7 @@ from questly.core.assignments.models import (
 )
 from questly.core.auth.models import Actor, Role
 from questly.integrations.email import StubEmailSender
-from tests.fakes.app import build_app
+from tests.fakes.app import build_app, fake_settings
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeAuthRepository, FakeClock, seed_user
 
 DEADLINE = datetime(2026, 10, 15, 16, 59, tzinfo=UTC)
@@ -28,7 +29,7 @@ ADMIN = "admin@kmitl.ac.th"
 class Campus:
     """Somchai publishes one problem to Sec 1, where two Students are Members."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, base_url: str = "http://localhost:8000") -> None:
         users = FakeAuthRepository()
         accounts = {}
         for email, name, role in [
@@ -46,7 +47,10 @@ class Campus:
         self.mailer = StubEmailSender()
         self.clock = FakeClock()
         self.app = build_app(
-            auth_repository=users, verification_mailer=self.mailer, clock=self.clock
+            settings=replace(fake_settings(), base_url=base_url),
+            auth_repository=users,
+            verification_mailer=self.mailer,
+            clock=self.clock,
         )
         classrooms = self.app.state.classroom_service
         self.classroom = classrooms.create(
@@ -181,6 +185,25 @@ async def test_notify_students_reaches_every_member_and_emails_them() -> None:
         assert kinds == ["assignment_notified", "assignment_published"]
     assert sorted(m.to for m in campus.mailer.messages) == [STUDENT, CLASSMATE]
     assert campus.mailer.messages[0].subject == "Reminder: Binary search"
+
+
+@pytest.mark.anyio
+async def test_notification_emails_link_to_the_configured_origin() -> None:
+    campus = Campus(base_url="https://questly.example.com")
+    teacher = await campus.client_for(TEACHER)
+    published = list(campus.mailer.messages)
+    campus.mailer.messages.clear()
+
+    await teacher.post(campus.notify_path)
+
+    link = (
+        f"https://questly.example.com/classes/{campus.classroom.id}"
+        f"/assignments/{campus.assignment_id}"
+    )
+    reminders = campus.mailer.messages
+    assert len(published) == len(reminders) == 2
+    for message in [*published, *reminders]:
+        assert message.body.splitlines()[-1] == link
 
 
 @pytest.mark.anyio

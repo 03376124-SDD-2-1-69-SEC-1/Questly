@@ -74,6 +74,7 @@ def fake_settings(
 
 def build_app(
     *,
+    settings: Settings | None = None,
     topic_repository: TopicRepository | None = None,
     assignment_repository: AssignmentRepository | None = None,
     version_repository: VersionRepository | None = None,
@@ -145,7 +146,7 @@ def build_app(
         classroom_stats = FakeClassroomStats()
 
     return create_app(
-        settings=fake_settings(max_upload_size_bytes=max_upload_size_bytes),
+        settings=settings or fake_settings(max_upload_size_bytes=max_upload_size_bytes),
         topic_repository=topic_repository,
         assignment_repository=assignment_repository,
         version_repository=version_repository,

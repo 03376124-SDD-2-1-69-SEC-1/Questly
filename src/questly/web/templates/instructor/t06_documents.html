@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_components/forms.html" import button, field, csrf_field with context %}
+{% from "_components/ui.html" import alert, badge, empty_state, page_header %}
+{% block head %}{% if has_refresh_state %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block title %}เอกสารของฉัน · Questly{% endblock %}
+{% block content %}
+<section data-page="T-06">
+  {{ page_header("เอกสารของฉัน", "จัดการเอกสารที่ใช้สร้างโจทย์ด้วย AI", eyebrow="INSTRUCTOR SPACE") }}
+  {% if notice %}
+    {% call alert(tone="ok", state="T-06-notice") %}{{ notice }}{% endcall %}
+  {% endif %}
+  {% if error %}
+    {% call alert(tone="danger", state="T-06-error") %}{{ error }}{% endcall %}
+  {% endif %}
+
+  <form method="post" action="/documents/upload" enctype="multipart/form-data" class="card mt-5 flex flex-col gap-4 sm:flex-row sm:items-end">
+    {{ csrf_field() }}
+    {{ field("file", "เลือกไฟล์ PDF", type="file", id="document-file", class="min-w-0 flex-1", accept=".pdf,application/pdf", required=true) }}
+    {{ button("Upload เอกสาร", variant="primary") }}
+  </form>
+
+  {% if documents %}
+  <div class="mt-6 flex flex-col gap-3">
+    <h2 class="h2">คลังเอกสารของคุณ · {{ documents | length }}</h2>
+    {% for item in documents %}
+      {% set document = item.document %}
+      {% set state = document.status.value %}
+      <article class="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" data-document-id="{{ document.id }}" data-state="{{ state }}">
+        <div class="min-w-0">
+          <h3 class="font-semibold [overflow-wrap:anywhere]">{{ document.filename }}</h3>
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-xxs">
+            {% set tones = {"uploaded": "info", "ingesting": "warn", "ready": "ok", "failed": "danger"} %}
+            {{ badge(status_labels[document.status], tone=tones[state]) }}
+            {% if state == "ingesting" %}
+              <span>กำลังประมวลผล หน้านี้จะรีเฟรชอัตโนมัติ</span>
+            {% elif state == "failed" %}
+              <span>ประมวลผลไม่สำเร็จ เอกสารนี้ยังใช้สร้างโจทย์ไม่ได้</span>
+            {% elif item.used_in %}
+              <span>ใช้ใน Draft ที่บันทึกไว้ {{ item.used_in }} รายการ</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if state == "uploaded" and not item.used_in %}
+        <form method="post" action="/documents/{{ document.id }}/delete" class="shrink-0">
+          {{ csrf_field() }}
+          {{ button("ลบ", variant="danger", size="sm") }}
+        </form>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+  {% else %}
+    {{ empty_state("ยังไม่มีเอกสาร", "อัปโหลดเอกสารประกอบการสอนของคุณเพื่อใช้เป็นแหล่งข้อมูลสร้างโจทย์ด้วย AI", art="PDF", state="T-06a") }}
+  {% endif %}
+</section>
+{% endblock %}
