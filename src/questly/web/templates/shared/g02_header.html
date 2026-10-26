@@ -10,7 +10,6 @@
     {% if breadcrumb is defined %}<span class="crumb">{{ icon("chevron", 14) }}{{ breadcrumb }}</span>{% endif %}
   </div>
   <div class="header-actions">
-    {#- "My documents" (T-06) returns with the documents slice; /documents is 404 until then. -#}
     <details class="relative" data-page="G-02a">
       <summary class="icon-btn" aria-label="Notifications">
         {{ icon("bell", 20) }}
@@ -66,6 +65,7 @@
 <div id="account-menu" popover class="dropdown w-56">
   <div class="px-2.5 py-2"><strong>{{ actor.full_name }}</strong><br><span class="sub">{{ actor.email }}</span></div>
   <hr class="hr my-1">
+  {% if actor.owns_classrooms %}<a class="dropdown-item" href="/documents">My documents</a>{% endif %}
   {{ action_form("/logout", "Log out", variant="plain", class="dropdown-item cursor-pointer") }}
 </div>
 
@@ -73,7 +73,7 @@
   <nav aria-label="Mobile">
     <a class="dropdown-item" href="/classes">Classrooms</a>
     {% if breadcrumb is defined %}<span class="dropdown-item">{{ breadcrumb }}</span>{% endif %}
-    {#- "My documents" returns with the documents slice. -#}
+    {% if actor.owns_classrooms %}<a class="dropdown-item" href="/documents">My documents</a>{% endif %}
     <span class="dropdown-item">{{ short_name(actor.full_name) }}</span>
     {{ action_form("/logout", "Log out", variant="plain", class="dropdown-item cursor-pointer") }}
   </nav>

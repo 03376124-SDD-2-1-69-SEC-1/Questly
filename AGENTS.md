@@ -27,7 +27,7 @@ setup and background live in `README.md` and `docs/adr/`.
 | `core/notifications`, `admin` | Working; persisted on Neon (CORE-18/OPS-21, CORE-19/OPS-22)                                                                                                                                                                                                                                                                                                                                                                                               | done (CORE-18, 19)              |
 | `database/`                   | ADR-0007 + ADR-0008 schema live on Neon (head `a2ec7512fb2c` once OPS-23 is upgraded); a SQL adapter per port, each held to a contract in `tests/contracts/`                                                                                                                                                                                                                                                                                              | done (OPS-15)                   |
 | `ai/`                         | Vector storage (AI-01), ingestion (AI-02 to 04) and retrieval (AI-05) work; embeddings and the real `GenerationClient` (AI-06) call OpenRouter through the `openrouter` SDK (ADR-0009). Retrieval is not yet wired into generation. AI-07 and AI-08 are open. The AI module has no routes; core reaches it through ports (OPS-16). Seed corpus: 100 PDFs on R2 under `sources/programming-in-th/` (OPS-17), registered in `core.knowledge_documents` (99 rows; one seed file was already in the instructor's library as document id 3) as `uploaded`, owned by `instructor@kmitl.ac.th` (OPS-18), not yet in `rag` (AI-08). | ฟิล์ม (AI-07, 08), พาย (OPS-16) |
-| `web/templates/`              | Every page of ADR-0007 exists except T-06 (FE-08); every page is re-skinned to Figma Make (UI-02 done)                                                                                                                                                                                                                                                                                                                                                    | พาย (FE-08)                     |
+| `web/templates/`              | Every page of ADR-0007 exists, T-06 included (FE-08, FE-11); every page is re-skinned to Figma Make (UI-02 done)                                                                                                                                                                                                                                                                                                                                          | done (FE-08, FE-11)             |
 
 Every slice also runs on the in-memory fakes in demo mode (`scripts/demo.py`)
 and in tests. In production `main.py` wires the SQL adapters in
@@ -287,6 +287,19 @@ as"; verification links are logged, not emailed; data is lost on restart. It
 lives outside `src/` because fakes may not ship in the package. When a slice
 lands, extend `DemoSeed` so its pages have data. `fastapi dev` wires the real
 SQL adapters, so it reads and writes the database in `.env`.
+
+**UI check** (`playwright/ui_walk.py`, OPS-40): after changing a template or
+`app.css`, start demo mode and run
+`uv run --with playwright python -I playwright/ui_walk.py <page paths>` (add
+`--upload-pdf` for T-06). It screenshots each page at 1280px and 390px and
+records a video into `playwright/out/` (git-ignored). Look at the screenshots
+yourself before saying a UI change is done, and attach the desktop and mobile
+shots of every changed page to the PR. Usage and options: `playwright/README.md`.
+- Playwright is not a dependency: always `uv run --with playwright`, never
+  add it to `pyproject.toml`.
+- If you start the demo server in the background for this, stop it when the
+  walk ends.
+- The no-JavaScript rule covers templates only; this Python script is fine.
 
 `tests/unit/` domain + service · `tests/integration/` HTTP via ASGI transport ·
 `tests/architecture/` import direction and the no-JavaScript rule ·

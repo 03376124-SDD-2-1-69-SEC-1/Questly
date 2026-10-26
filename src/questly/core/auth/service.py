@@ -85,10 +85,13 @@ class AuthService:
         repository: AuthRepository,
         notification_service: NotificationService,
         clock: Clock,
+        *,
+        base_url: str,
     ) -> None:
         self._repository = repository
         self._notification_service = notification_service
         self._clock = clock
+        self._base_url = base_url.rstrip("/")
 
     def sign_up(
         self,
@@ -233,7 +236,7 @@ class AuthService:
 
     def _send_verification(self, user: User) -> None:
         token = secrets.token_urlsafe(32)
-        verify_path = f"/verify?token={token}"
+        verify_path = f"{self._base_url}/verify?token={token}"
 
         self._repository.create_verification_token(
             VerificationToken(
