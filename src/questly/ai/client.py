@@ -19,6 +19,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 import httpx
@@ -64,6 +65,9 @@ _SIMILARITY_THRESHOLD = 0.80
 _MIN_COMPARE_LENGTH = 24
 _RETRIEVAL_LIMIT = 5
 _MAX_SAMPLES = 5
+# Judge0 calls are sequential at up to _SOLUTION_TIME_LIMIT_SECONDS each, so
+# sample verification gets one budget per generate(), shared by both attempts.
+_SAMPLE_RUN_BUDGET = 20
 _INPUT_HEADINGS = frozenset({"sample input", "ตัวอย่างข้อมูลนำเข้า", "ตัวอย่างข้อมูลเข้า"})
 _OUTPUT_HEADINGS = frozenset({"sample output", "ตัวอย่างข้อมูลส่งออก", "ตัวอย่างข้อมูลออก"})
 
@@ -120,14 +124,14 @@ class VectorCitationRetriever:
     def retrieve(self, request: GenerationRequest) -> list[Citation]:
         if not request.document_ids:
             return []
-        filters = request.filters
         result = self._retrieval.retrieve(
             self._embedder.embed(request.prompt),
             embedding_model=self._embedder.model,
             top_k=_RETRIEVAL_LIMIT,
+            # Uploaded PDFs carry no `topic` metadata, so a topic or difficulty
+            # filter on top of the selection would match nothing. Both stay in
+            # the prompt text instead.
             filters=RetrievalFilters(
-                topic=filters.topic if filters else None,
-                difficulty=filters.difficulty if filters else None,
                 core_document_ids=tuple(sorted(set(request.document_ids))),
             ),
         )
@@ -239,6 +243,7 @@ class OpenRouterGenerationClient:
                 on_step(GenerationStep.RUNNING_SOLUTION)
                 reported_running = True
 
+        sample_budget = _SampleRunBudget(remaining=_SAMPLE_RUN_BUDGET)
         for attempt in range(_MAX_ATTEMPTS):
             try:
                 result = self._client.chat.send(
@@ -258,7 +263,7 @@ class OpenRouterGenerationClient:
                 on_step(GenerationStep.VALIDATING)
             parsed = _parse_response(raw)
             reason = _grounding_failure(
-                parsed, citations, self._code_runner, report_running
+                parsed, citations, self._code_runner, report_running, sample_budget
             )
             if not reason:
                 response = self._with_expected_outputs(parsed, model, report_running)
@@ -331,13 +336,34 @@ class _ParsedReply:
     reference_solution: str
 
 
+@dataclass(slots=True)
+class _SampleRunBudget:
+    """Runs left for cited-sample verification in one generate() call.
+
+    Once the budget is spent, or the runner reports it cannot execute code at
+    all, remaining samples are unverified rather than failed.
+    """
+
+    remaining: int
+    runner_not_configured: bool = False
+
+
+class _SampleCheck(Enum):
+    MATCHED = "matched"
+    MISMATCHED = "mismatched"
+    UNVERIFIED = "unverified"
+
+
 def _grounding_failure(
     parsed: _ParsedReply,
     citations: list[Citation],
     runner: CodeRunner,
     on_running: Callable[[GenerationStep], None],
+    budget: _SampleRunBudget | None = None,
 ) -> str:
     """Return a short reason for retry, or empty text when grounded."""
+    if budget is None:
+        budget = _SampleRunBudget(remaining=_SAMPLE_RUN_BUDGET)
     draft = parsed.response.draft
     if any(
         _too_similar(draft.statement, citation.text_snapshot)
@@ -357,31 +383,44 @@ def _grounding_failure(
         if not parsed.reference_solution:
             return "reference solution missing for cited sample"
         on_running(GenerationStep.RUNNING_SOLUTION)
-        if not any(
-            _strategy_matches(
-                strategy[:_MAX_SAMPLES], parsed.reference_solution, runner
+        checks = []
+        for strategy in strategies:
+            check = _check_strategy(
+                strategy[:_MAX_SAMPLES], parsed.reference_solution, runner, budget
             )
-            for strategy in strategies
-        ):
-            return "reference solution disagrees with cited sample output"
+            if check is _SampleCheck.MATCHED:
+                break
+            checks.append(check)
+        else:
+            if _SampleCheck.UNVERIFIED not in checks:
+                return "reference solution disagrees with cited sample output"
     return ""
 
 
-def _strategy_matches(
-    pairs: list[tuple[str, str]], solution: str, runner: CodeRunner
-) -> bool:
+def _check_strategy(
+    pairs: list[tuple[str, str]],
+    solution: str,
+    runner: CodeRunner,
+    budget: _SampleRunBudget,
+) -> _SampleCheck:
     for sample_input, sample_output in pairs:
+        if budget.runner_not_configured or budget.remaining <= 0:
+            return _SampleCheck.UNVERIFIED
+        budget.remaining -= 1
         execution = runner.run(
             code=solution,
             language=_SOLUTION_LANGUAGE,
             stdin=sample_input,
             time_limit_seconds=_SOLUTION_TIME_LIMIT_SECONDS,
         )
+        if execution.is_runner_not_configured:
+            budget.runner_not_configured = True
+            return _SampleCheck.UNVERIFIED
         if execution.status is not ExecutionStatus.OK or _as_expected_output(
             execution.stdout
         ) != _as_expected_output(sample_output):
-            return False
-    return True
+            return _SampleCheck.MISMATCHED
+    return _SampleCheck.MATCHED
 
 
 def _too_similar(statement: str, excerpt: str) -> bool:

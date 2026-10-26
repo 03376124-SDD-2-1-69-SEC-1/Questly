@@ -16,6 +16,7 @@ import openrouter.utils.retries
 import pytest
 from openrouter.errors import NoResponseError, OpenRouterError
 
+import questly.ai.client as client_module
 from questly.ai.app.models import ChunkSearchResult
 from questly.ai.client import (
     CitationRetriever,
@@ -26,6 +27,7 @@ from questly.ai.client import (
     _grounding_failure,
     _parse_response,
     _sample_pairs,
+    _SampleRunBudget,
     _too_similar,
 )
 from questly.ai.retrieval.models import RetrievalResult
@@ -37,6 +39,8 @@ from questly.core.generation.schemas import (
     GenerationResponse,
 )
 from questly.core.submissions.models import Execution, ExecutionStatus
+from questly.core.submissions.ports import CodeRunner
+from questly.integrations.judge0 import StubCodeRunner
 
 # ---------------------------------------------------------------------------
 # StubGenerationClient — kept as regression guard
@@ -160,7 +164,7 @@ def _failed(status: ExecutionStatus) -> Execution:
 
 def _make_client(
     model: str = "test/model",
-    code_runner: FakeCodeRunner | None = None,
+    code_runner: CodeRunner | None = None,
     retriever: CitationRetriever | None = None,
 ) -> OpenRouterGenerationClient:
     """Build a client with a dummy key; SDK won't validate until a call is made."""
@@ -682,3 +686,142 @@ def test_short_copied_statement_and_long_copied_title_are_detected() -> None:
     assert "too similar" in _grounding_failure(
         parsed, [_citation(excerpt)], FakeCodeRunner([]), _ignore_step
     )
+
+
+_SAMPLE_EXCERPT = "โจทย์เรื่องค่าสูงสุด\nSample Input:\n3\n1 5 2\nSample Output:\n5"
+
+
+def test_stub_runner_skips_sample_check_instead_of_failing_every_draft() -> None:
+    runner = StubCodeRunner()
+    client = _make_client(
+        code_runner=runner,
+        retriever=FakeCitationRetriever([_citation(_SAMPLE_EXCERPT)]),
+    )
+    with patch.object(
+        client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+    ) as send:
+        response = client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), _ignore_step
+        )
+
+    assert send.call_count == 1
+    assert response.draft.title == "Find Maximum"
+    assert [case.expected_output for case in response.draft.test_cases] == ["", ""]
+
+
+def test_stub_runner_does_not_disable_the_copy_similarity_check() -> None:
+    excerpt = "โจทย์ให้อ่านจำนวนเต็มหลายค่าแล้วหาค่ามากที่สุดจากรายการที่ได้รับ " * 3
+    copied = json.dumps(
+        {
+            "title": "Copy",
+            "statement": excerpt,
+            "test_cases": [{"input_data": "1"}],
+            "reference_solution": _SOLUTION,
+        }
+    )
+    client = _make_client(
+        code_runner=StubCodeRunner(),
+        retriever=FakeCitationRetriever([_citation(excerpt + _SAMPLE_EXCERPT)]),
+    )
+    with (
+        patch.object(client._client.chat, "send", return_value=_mock_result(copied)),
+        pytest.raises(ValueError, match="too similar"),
+    ):
+        client.generate(
+            GenerationRequest(prompt="copy", document_ids=[7]), _ignore_step
+        )
+
+
+def test_a_working_runner_that_runs_the_solution_wrong_still_fails_the_draft() -> None:
+    runner = FakeCodeRunner([_failed(ExecutionStatus.RUNTIME_ERROR)] * 4)
+    client = _make_client(
+        code_runner=runner,
+        retriever=FakeCitationRetriever([_citation(_SAMPLE_EXCERPT)]),
+    )
+    with (
+        patch.object(
+            client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+        ) as send,
+        pytest.raises(ValueError, match="disagrees"),
+    ):
+        client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), _ignore_step
+        )
+
+    assert send.call_count == 2
+
+
+def test_vector_retriever_filters_by_selected_documents_only() -> None:
+    embedder = MagicMock()
+    embedder.model = "test-embedding"
+    embedder.embed.return_value = (1.0,) + (0.0,) * 767
+    retrieval = MagicMock()
+    retrieval.retrieve.return_value = RetrievalResult(
+        matches=(ChunkSearchResult(12, 7, 2, "excerpt", 0.9),),
+        difficulty_relaxed=False,
+    )
+    request = GenerationRequest(
+        prompt="array",
+        document_ids=[4],
+        filters=GenerationFilters(topic="arrays", difficulty="easy"),
+    )
+
+    VectorCitationRetriever(embedder, retrieval).retrieve(request)
+
+    sent = retrieval.retrieve.call_args.kwargs["filters"]
+    assert (sent.topic, sent.difficulty, sent.core_document_ids) == (None, None, (4,))
+
+
+class CountingRunner:
+    """Runs every program to a fixed wrong answer and counts the runs."""
+
+    def __init__(self) -> None:
+        self.runs = 0
+
+    def run(
+        self, *, code: str, language: str, stdin: str, time_limit_seconds: float
+    ) -> Execution:
+        self.runs += 1
+        return _ok("wrong")
+
+
+def test_sample_runs_never_exceed_the_budget_and_the_rest_are_unverified() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+    runner = CountingRunner()
+
+    reason = _grounding_failure(
+        _parse_response(_VALID_LLM_RESPONSE),
+        [_citation(fixture)] * 5,
+        runner,
+        _ignore_step,
+        _SampleRunBudget(remaining=3),
+    )
+
+    assert runner.runs == 3
+    assert reason == ""
+
+
+def test_generation_treats_samples_beyond_the_budget_as_unverified_not_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = (
+        Path(__file__).resolve().parents[2] / "fixtures/ai/pith_0001.txt"
+    ).read_text(encoding="utf-8")
+    monkeypatch.setattr(client_module, "_SAMPLE_RUN_BUDGET", 3)
+    runner = CountingRunner()
+    client = _make_client(
+        code_runner=runner,
+        retriever=FakeCitationRetriever([_citation(fixture)] * 5),
+    )
+    with patch.object(
+        client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+    ) as send:
+        response = client.generate(
+            GenerationRequest(prompt="find max", document_ids=[7]), _ignore_step
+        )
+
+    test_case_runs = len(response.draft.test_cases)
+    assert send.call_count == 1
+    assert runner.runs == 3 + test_case_runs

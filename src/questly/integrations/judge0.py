@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from questly.core.assignments.models import Language
 from questly.core.submissions.models import (
+    RUNNER_NOT_CONFIGURED_STDERR,
     BatchResult,
     BatchState,
     Execution,
@@ -346,6 +347,6 @@ class StubCodeRunner:
 _NOT_CONFIGURED = Execution(
     status=ExecutionStatus.RUNTIME_ERROR,
     stdout="",
-    stderr="The code runner is not configured.",
+    stderr=RUNNER_NOT_CONFIGURED_STDERR,
     time_seconds=0.0,
 )
