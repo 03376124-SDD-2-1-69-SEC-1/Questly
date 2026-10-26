@@ -29,7 +29,7 @@ Result key: **matches** = same layout and components as Figma; **adapted** = Fig
 | T-04b | `instructor/t04b_published.html` | CreateProblem (published) | matches | |
 | T-05 | `instructor/t05_edit.html` | none | no mock | Fields grouped in cards. |
 | A-01 | `admin/a01_*.html` | Admin | adapted | The admin pages are real now (users, AI, status), so they are restyled with the Figma admin nav and keep all behaviour. No fake data added. |
-| T-06 Documents | none | Documents | not built | Built in FE-08 after CORE-16 and OPS-20. |
+| T-06 Documents | `instructor/t06_documents.html` | Documents | adapted | Built in FE-08 after CORE-16 and OPS-20, fixed in FE-11. Thai copy with an `INSTRUCTOR SPACE` eyebrow; upload field, status badges and empty state come from the shared macros, so the layout follows the app rather than the mock one to one. No JavaScript: the browser's file input shows the chosen file name. |
 
 ## Cross-cutting deviations
 

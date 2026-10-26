@@ -35,7 +35,9 @@ class World:
         self.clock = FakeClock()
         self.stats = FakeClassroomStats()
         self.repository = FakeClassroomRepository()
-        directory = AuthService(self.users, StubEmailSender(), self.clock)
+        directory = AuthService(
+            self.users, StubEmailSender(), self.clock, base_url="http://localhost:8000"
+        )
         self.service = ClassroomService(
             self.repository, directory, self.stats, self.clock
         )

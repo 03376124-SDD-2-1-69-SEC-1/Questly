@@ -72,6 +72,7 @@ from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.classrooms.routes import router as classroom_router
 from questly.core.classrooms.service import ClassroomService
 from questly.core.classrooms.stats import ComputedClassroomStats
+from questly.core.documents.pages import router as document_page_router
 from questly.core.documents.ports import KnowledgeDocumentRepository, ObjectStorage
 from questly.core.documents.routes import router as document_router
 from questly.core.documents.service import DocumentService
@@ -299,6 +300,7 @@ def create_app(
         clock,
         classroom_repository,
         auth_repository,
+        base_url=use_settings().base_url,
     )
     application.state.notification_service = notification_service
 
@@ -333,7 +335,12 @@ def create_app(
             )
         else:
             provider_quota = StubProviderQuota(clock)
-    auth_service = AuthService(auth_repository, notification_service, clock)
+    auth_service = AuthService(
+        auth_repository,
+        notification_service,
+        clock,
+        base_url=use_settings().base_url,
+    )
     application.state.auth_service = auth_service
     admin_service = AdminService(
         admin_repository,
@@ -445,6 +452,7 @@ def create_app(
     application.include_router(draft_router)
     application.include_router(draft_classroom_router)
     application.include_router(generation_page_router)
+    application.include_router(document_page_router)
     application.include_router(document_router)
     application.include_router(notification_router)
     application.include_router(notification_page_router)
