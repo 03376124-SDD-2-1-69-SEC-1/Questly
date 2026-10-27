@@ -216,6 +216,37 @@ ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th
 ของคนอื่นสร้างและยืนยันบัญชี Student ด้วยอีเมลนั้นได้ สิทธิ์อาจารย์ยังต้องให้ Admin อนุมัติ
 ให้เอาโดเมนออกจาก `ONSCREEN_VERIFY_DOMAINS` เมื่อ KMITL รับอีเมลของเราได้แล้ว
 
+#### การป้องกันด้านความปลอดภัย
+
+ถ้าจะรัน Questly บนเซิร์ฟเวอร์ ให้ทำตาม [docs/deploy.md](docs/deploy.md)
+ซึ่งท้ายไฟล์มี checklist ที่ต้องทำให้ครบก่อนส่ง URL ให้คนนอกทีม แอปที่ serve จริง
+(`questly.main:app`) มีการป้องกันดังนี้
+
+- **จำกัดจำนวนคำขอ** แต่ละ IP ของ client ส่ง login ได้ 10 ครั้งใน 5 นาที
+  สมัครสมาชิกได้ 5 ครั้งต่อชั่วโมง และขอลิงก์ยืนยันใหม่ได้ 5 ครั้งใน 15 นาที
+  โดยนับหน้าเว็บกับ endpoint ใน `/api/v1/auth/` รวมกัน เกินแล้วหน้าเว็บได้ G-05
+  สถานะ 429 ส่วน API ได้ 429 `rate_limited` ทั้งสองแบบมี `Retry-After`
+  ตัวนับอยู่ในหน่วยความจำของ process และเริ่มใหม่เมื่อ restart ถ้าอยู่หลัง proxy
+  ให้รัน uvicorn ด้วย `--proxy-headers --forwarded-allow-ips` ที่ระบุเฉพาะ proxy นั้น
+  แบบเดียวกับ `docs/deploy.md` ไม่อย่างนั้นทุก client จะใช้ IP ของ proxy ร่วมกัน
+  demo และ test ไม่จำกัดจำนวนคำขอ
+- **Header** ทุก response มี `X-Content-Type-Options`, `X-Frame-Options: DENY`,
+  `Referrer-Policy` และ `Permissions-Policy` หน้า HTML มี `Content-Security-Policy`
+  ที่ไม่อนุญาต JavaScript รับ style จากแอปและ Google Fonts และให้ฟอร์มส่งกลับมาที่แอปเท่านั้น
+  งานที่จะเพิ่ม JavaScript หรือแหล่งภายนอกอื่นต้องแก้ `CONTENT_SECURITY_POLICY`
+  ใน `src/questly/main.py` ด้วย `Strict-Transport-Security` ส่งเมื่อ cookie เป็น
+  `Secure` คือทุกที่ยกเว้น demo และ test
+- **เอกสาร API** เมื่อ `APP_ENV=production` หน้า `/docs`, `/redoc` และ
+  `/openapi.json` ตอบ 404
+- **Health check** `/health/db` และ `/health/r2` ตอบ 503 พร้อม
+  `database unavailable` หรือ `storage unavailable` สาเหตุจริงเขียนลง log เท่านั้น
+- **อีเมลถึง Member เข้าคิว** อีเมลแจ้ง Member เรื่องโจทย์ที่เผยแพร่หรือแก้ไขเข้าคิวที่
+  thread เบื้องหลังหนึ่งตัวส่งให้ การเผยแพร่จึงไม่ต้องรอผู้ให้บริการอีเมล อีเมลที่ยังค้างในคิว
+  หายเมื่อ process หยุดหรือ restart อีเมลยืนยันตัวตนยังส่งระหว่าง request เหมือนเดิม
+  ส่วน demo และ test ส่งทุกฉบับระหว่าง request
+- **worker เดียว** ตัวนับคำขอ คิวอีเมล ความคืบหน้าการ generate และลิงก์ยืนยันบนหน้าจอ
+  อยู่ในหน่วยความจำของ process จึงต้องรัน uvicorn worker เดียวเท่านั้น
+
 ### 5. รัน Database Migrations
 
 ```bash
