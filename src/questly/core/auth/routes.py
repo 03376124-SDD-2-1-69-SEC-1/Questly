@@ -21,17 +21,27 @@ from questly.core.auth.service import (
     AccountDeactivatedError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
+    ExternalCannotRequestInstructorError,
     FacultyRequiredError,
     InstructorRequestExistsError,
     InvalidCredentialsError,
+    InvalidEmailError,
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    RateLimitBucket,
+    RateLimitedError,
+    UseKmitlOptionError,
+    VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
+    rate_limit_key_for_email,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+# A client the server cannot name shares one bucket rather than going unlimited.
+UNKNOWN_CLIENT = "unknown"
 
 
 def user_response(user: User) -> UserResponse:
@@ -60,6 +70,43 @@ def _fail(status_code: int, code: str, message: str) -> NoReturn:
     )
 
 
+def enforce_rate_limit(
+    request: Request, bucket: RateLimitBucket, *, email: str | None = None
+) -> None:
+    """Raise a 429 with Retry-After once this client has used up `bucket`.
+
+    The key is the connecting address. Forwarding headers are never read here:
+    uvicorn rewrites the address from them only for a trusted proxy, so a
+    client cannot choose its own key. main.py renders the 429 as G-05 for a
+    page and keeps the JSON envelope for /api/.
+
+    With `email`, the account's own bucket is counted next, so many students
+    behind one campus NAT share only the loose per-address limit. A request
+    the address bucket refuses never reaches the account bucket.
+    """
+    address = UNKNOWN_CLIENT if request.client is None else request.client.host
+    _hit(request, bucket, address)
+    if email is not None:
+        _hit(request, _ACCOUNT_BUCKETS[bucket], rate_limit_key_for_email(email))
+
+
+_ACCOUNT_BUCKETS = {
+    RateLimitBucket.LOGIN: RateLimitBucket.LOGIN_EMAIL,
+    RateLimitBucket.RESEND: RateLimitBucket.RESEND_EMAIL,
+}
+
+
+def _hit(request: Request, bucket: RateLimitBucket, key: str) -> None:
+    try:
+        request.app.state.rate_limiter.hit(bucket, key)
+    except RateLimitedError as limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "rate_limited", "message": "Too many requests, try later"},
+            headers={"Retry-After": str(limited.retry_after_seconds)},
+        ) from limited
+
+
 def set_session_cookie(request: Request, response: Response, token: str) -> None:
     """HttpOnly, SameSite=Lax, and Secure unless create_app(secure_cookies=False)."""
     response.set_cookie(
@@ -77,6 +124,7 @@ def set_session_cookie(request: Request, response: Response, token: str) -> None
 )
 def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
     """Create a Student account and email a verification link."""
+    enforce_rate_limit(request, RateLimitBucket.SIGNUP)
     try:
         user = auth_service(request).sign_up(
             full_name=payload.full_name,
@@ -85,9 +133,20 @@ def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
             confirm_password=payload.confirm_password,
             wants_instructor=payload.wants_instructor,
             faculty=payload.faculty,
+            external=payload.external,
         )
     except NotKmitlEmailError:
         _fail(422, "not_kmitl_email", "Use your @kmitl.ac.th address to sign up")
+    except UseKmitlOptionError:
+        _fail(422, "use_kmitl_option", "Sign up an @kmitl.ac.th address as KMITL")
+    except InvalidEmailError:
+        _fail(422, "invalid_email", "Enter a valid email address")
+    except ExternalCannotRequestInstructorError:
+        _fail(
+            422,
+            "external_cannot_request_instructor",
+            "Only @kmitl.ac.th accounts can request instructor rights",
+        )
     except PasswordTooShortError:
         _fail(422, "password_too_short", "Password must be at least 8 characters")
     except PasswordMismatchError:
@@ -96,6 +155,9 @@ def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
         _fail(422, "faculty_required", "Faculty is required for an instructor request")
     except EmailAlreadyRegisteredError:
         _fail(409, "email_already_registered", "Email already registered")
+    except VerificationEmailNotSentError as not_sent:
+        # the account exists; the client can ask for a resend
+        user = not_sent.user
     return user_response(user)
 
 
@@ -113,7 +175,11 @@ def verify(request: Request, payload: VerifyRequest) -> UserResponse:
 @router.post("/verify/resend", status_code=status.HTTP_202_ACCEPTED)
 def resend(request: Request, payload: ResendRequest) -> Response:
     """Email a fresh verification link if the account exists and is unverified."""
-    auth_service(request).resend_verification(payload.email)
+    enforce_rate_limit(request, RateLimitBucket.RESEND, email=payload.email)
+    try:
+        auth_service(request).resend_verification(payload.email)
+    except VerificationEmailNotSentError:
+        _fail(503, "email_delivery_failed", "The email could not be sent")
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
@@ -122,6 +188,7 @@ def log_in(
     request: Request, payload: LoginRequest, response: Response
 ) -> LoginResponse:
     """Start a session; the token travels in an HttpOnly cookie."""
+    enforce_rate_limit(request, RateLimitBucket.LOGIN, email=payload.email)
     try:
         result = auth_service(request).log_in(
             email=payload.email, password=payload.password
@@ -167,6 +234,12 @@ def request_instructor(
     try:
         created = auth_service(request).request_instructor(
             actor, faculty=payload.faculty
+        )
+    except ExternalCannotRequestInstructorError:
+        _fail(
+            422,
+            "external_cannot_request_instructor",
+            "Only @kmitl.ac.th accounts can request instructor rights",
         )
     except FacultyRequiredError:
         _fail(422, "faculty_required", "Faculty is required")

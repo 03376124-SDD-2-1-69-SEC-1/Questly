@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from hashlib import sha256
 from pathlib import PurePosixPath
 from uuid import uuid4
@@ -13,6 +14,7 @@ from questly.core.documents.models import (
     KnowledgeDocument,
 )
 from questly.core.documents.ports import (
+    DocumentIngestor,
     DocumentRepositoryError,
     KnowledgeDocumentRepository,
     ObjectStorage,
@@ -20,6 +22,8 @@ from questly.core.documents.ports import (
 )
 
 KEY_PREFIX = "uploads/"
+
+logger = logging.getLogger(__name__)
 
 
 class UploadTooLargeError(Exception):
@@ -59,9 +63,12 @@ class DocumentService:
         repository: KnowledgeDocumentRepository,
         *,
         max_upload_size_bytes: int,
+        ingestor: DocumentIngestor | None = None,
     ) -> None:
         self._storage = storage
         self._repository = repository
+        self._ingestor = ingestor
+        self.ingestion_enabled = ingestor is not None
         self.max_upload_size_bytes = max_upload_size_bytes
 
     def store(self, actor: Actor, *, filename: str, data: bytes) -> KnowledgeDocument:
@@ -148,10 +155,80 @@ class DocumentService:
             raise DocumentNotRetryableError
         return item
 
+    def ingest(self, actor: Actor, document_id: int) -> None:
+        """Ingest an uploaded document, ending `ready` or `failed`.
+
+        The background job scheduled after an upload or a retry. It never
+        raises, because it runs after the response and an error would reach no
+        one. A document that is not `uploaded` is left alone, so a re-upload of
+        an ingested file or a second scheduling of the same job does nothing.
+        Without an ingestor the document stays `uploaded`.
+        """
+        if self._ingestor is None:
+            return
+        try:
+            document = self.get(actor, document_id).document
+            started = self._repository.update_status_for_owner(
+                document_id,
+                actor.user_id,
+                expected_status=DocumentStatus.UPLOADED,
+                new_status=DocumentStatus.INGESTING,
+            )
+        except Exception:
+            logger.exception("could not start ingesting document %s", document_id)
+            return
+        if not started:
+            return
+        try:
+            self._ingestor.ingest(
+                document_id=document_id,
+                object_key=document.object_key,
+                data=self._storage.get(document.object_key),
+                metadata=document.metadata,
+            )
+            marked_ready = self._repository.update_status_for_owner(
+                document_id,
+                actor.user_id,
+                expected_status=DocumentStatus.INGESTING,
+                new_status=DocumentStatus.READY,
+            )
+            if not marked_ready:
+                logger.warning(
+                    "document %s left ingesting before it could be marked ready",
+                    document_id,
+                )
+        except Exception:
+            logger.exception("ingesting document %s failed", document_id)
+            self._mark_failed(actor, document_id)
+
     def authorize(self, actor: Actor) -> None:
         """Reject non-Instructors before an upload body is read."""
         if actor.role is not Role.INSTRUCTOR:
             raise PermissionDeniedError
+
+    def _mark_failed(self, actor: Actor, document_id: int) -> None:
+        try:
+            self._repository.update_status_for_owner(
+                document_id,
+                actor.user_id,
+                expected_status=DocumentStatus.INGESTING,
+                new_status=DocumentStatus.FAILED,
+            )
+        except Exception:
+            logger.exception("could not mark document %s failed", document_id)
+
+
+def fail_stuck_ingestions(repository: KnowledgeDocumentRepository) -> int:
+    """At startup, fail every document a previous process left `ingesting`.
+
+    Those documents can then be retried. This assumes one app process (one
+    instance, one worker): with several, or with scripts/ingest_seed.py running
+    at the same time, a live ingestion elsewhere would be marked failed too.
+    """
+    stuck = repository.fail_ingesting()
+    if stuck:
+        logger.warning("marked %d documents left ingesting as failed", stuck)
+    return stuck
 
 
 def _safe_filename(filename: str) -> str:

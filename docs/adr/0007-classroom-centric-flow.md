@@ -21,6 +21,8 @@ Terms used below are defined in `CONTEXT.md`.
 1. Sign-up is self-service with an `@kmitl.ac.th` email, a password, and an
    email verification link valid for 24 hours. Every account starts as a
    **Student**.
+   Amended by ADR-0013 (OPS-43): people outside KMITL may sign up as
+   Students, and listed domains verify on screen.
 2. Ticking "I am an instructor" on G-03 files an **Instructor request**
    (`instructor_requests`: user, faculty, status, reviewed_by, reviewed_at,
    note). An Admin approves it in A-01, which sets the user's role. The G-03

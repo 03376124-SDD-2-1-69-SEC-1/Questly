@@ -9,7 +9,8 @@ called, not when this module is imported.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from functools import lru_cache
 from urllib.parse import urlsplit
 
@@ -21,6 +22,12 @@ REQUIRED_DRIVER = "postgresql+psycopg"
 
 DEFAULT_BASE_URL = "http://localhost:8000"
 PRODUCTION = "production"
+
+EMAIL_BACKENDS = ("stub", "smtp", "resend")
+SMTP_SECURITIES = ("ssl", "starttls")
+DEFAULT_SMTP_PORTS = {"ssl": 465, "starttls": 587}
+
+_DOMAIN = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
 class MissingConfigurationError(RuntimeError):
@@ -69,6 +76,19 @@ class Settings:
     # Public origin that email links are built on:
     # {base_url}/verify and {base_url}/classes/...
     base_url: str = DEFAULT_BASE_URL
+    app_env: str = ""
+    # Outgoing email (OPS-37): "stub" logs instead of sending.
+    email_backend: str = "stub"
+    email_from: str = ""
+    smtp_host: str = ""
+    smtp_port: int = DEFAULT_SMTP_PORTS["starttls"]
+    smtp_username: str = ""
+    smtp_password: str = field(default="", repr=False)
+    smtp_security: str = "starttls"
+    resend_api_key: str = field(default="", repr=False)
+    # Email domains whose G-04a shows the verification link (ADR-0013),
+    # lower-case, without "@".
+    onscreen_verify_domains: tuple[str, ...] = ()
 
 
 def _required(variable: str) -> str:
@@ -149,6 +169,97 @@ def _base_url() -> str:
     return raw.rstrip("/")
 
 
+def _app_env() -> str:
+    return os.environ.get("APP_ENV", "").strip().lower()
+
+
+@dataclass(frozen=True, slots=True)
+class _EmailEnvironment:
+    backend: str
+    sender: str
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_security: str
+    resend_api_key: str
+
+
+def _env(variable: str) -> str:
+    return os.environ.get(variable, "").strip()
+
+
+def _email_environment() -> _EmailEnvironment:
+    """Resolve EMAIL_BACKEND and the variables the chosen backend needs.
+
+    Production refuses the stub, which only logs: an unset EMAIL_BACKEND there
+    stops the app at startup. A backend with missing variables raises once,
+    naming every missing variable and never a value.
+    """
+    production = _app_env() == PRODUCTION
+    backend = _env("EMAIL_BACKEND").lower()
+    if not backend:
+        if production:
+            raise MissingConfigurationError(
+                "EMAIL_BACKEND is not set. It is required when APP_ENV=production: "
+                "set it to smtp or resend."
+            )
+        backend = "stub"
+    if backend not in EMAIL_BACKENDS:
+        raise MissingConfigurationError(
+            f"EMAIL_BACKEND must be one of {', '.join(EMAIL_BACKENDS)}, "
+            f"got {backend!r}."
+        )
+    if backend == "stub" and production:
+        raise MissingConfigurationError(
+            "EMAIL_BACKEND=stub only logs emails and is not allowed when "
+            "APP_ENV=production: set EMAIL_BACKEND to smtp or resend."
+        )
+
+    required = {
+        "stub": (),
+        "smtp": ("EMAIL_FROM", "SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD"),
+        "resend": ("EMAIL_FROM", "RESEND_API_KEY"),
+    }[backend]
+    missing = [variable for variable in required if not _env(variable)]
+    if missing:
+        raise MissingConfigurationError(
+            f"EMAIL_BACKEND={backend} needs {', '.join(missing)}, which "
+            f"{'is' if len(missing) == 1 else 'are'} not set."
+        )
+
+    security = "starttls"
+    port = DEFAULT_SMTP_PORTS[security]
+    if backend == "smtp":
+        security = _env("SMTP_SECURITY").lower() or security
+        if security not in SMTP_SECURITIES:
+            raise MissingConfigurationError(
+                f"SMTP_SECURITY must be one of {', '.join(SMTP_SECURITIES)}, "
+                f"got {security!r}."
+            )
+        port = DEFAULT_SMTP_PORTS[security]
+        raw_port = _env("SMTP_PORT")
+        if raw_port:
+            if not (raw_port.isascii() and raw_port.isdigit()) or not (
+                1 <= int(raw_port) <= 65535
+            ):
+                raise MissingConfigurationError(
+                    f"SMTP_PORT must be a port from 1 to 65535, got {raw_port!r}."
+                )
+            port = int(raw_port)
+
+    return _EmailEnvironment(
+        backend=backend,
+        sender=_env("EMAIL_FROM"),
+        smtp_host=_env("SMTP_HOST"),
+        smtp_port=port,
+        smtp_username=_env("SMTP_USERNAME"),
+        smtp_password=_env("SMTP_PASSWORD"),
+        smtp_security=security,
+        resend_api_key=_env("RESEND_API_KEY"),
+    )
+
+
 def _model_allowlist(generation_model: str) -> tuple[str, ...]:
     """GENERATION_MODEL_ALLOWLIST, comma-separated.
 
@@ -164,6 +275,22 @@ def _model_allowlist(generation_model: str) -> tuple[str, ...]:
     return models
 
 
+def _onscreen_verify_domains() -> tuple[str, ...]:
+    """ONSCREEN_VERIFY_DOMAINS, comma-separated, e.g. `kmitl.ac.th`."""
+    domains = []
+    for entry in os.environ.get("ONSCREEN_VERIFY_DOMAINS", "").split(","):
+        domain = entry.strip().lower().removeprefix("@")
+        if not domain:
+            continue
+        if not _DOMAIN.fullmatch(domain):
+            raise MissingConfigurationError(
+                "ONSCREEN_VERIFY_DOMAINS must list domains such as kmitl.ac.th, "
+                f"got {entry.strip()!r}."
+            )
+        domains.append(domain)
+    return tuple(domains)
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Read the environment once and return the resolved configuration."""
@@ -172,6 +299,8 @@ def get_settings() -> Settings:
         os.environ.get("GENERATION_MODEL", DEFAULT_GENERATION_MODEL).strip()
         or DEFAULT_GENERATION_MODEL
     )
+    base_url = _base_url()
+    email = _email_environment()
     return Settings(
         database_url=_database_url(),
         r2_endpoint_url=_required("R2_ENDPOINT_URL"),
@@ -188,5 +317,15 @@ def get_settings() -> Settings:
         ),
         judge0_url=os.environ.get("JUDGE0_URL", "").strip(),
         judge0_auth_token=os.environ.get("JUDGE0_AUTH_TOKEN", "").strip(),
-        base_url=_base_url(),
+        base_url=base_url,
+        app_env=_app_env(),
+        email_backend=email.backend,
+        email_from=email.sender,
+        smtp_host=email.smtp_host,
+        smtp_port=email.smtp_port,
+        smtp_username=email.smtp_username,
+        smtp_password=email.smtp_password,
+        smtp_security=email.smtp_security,
+        resend_api_key=email.resend_api_key,
+        onscreen_verify_domains=_onscreen_verify_domains(),
     )

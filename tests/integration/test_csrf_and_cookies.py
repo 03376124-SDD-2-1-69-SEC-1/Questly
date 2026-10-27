@@ -168,7 +168,6 @@ async def test_root_shows_the_landing_page_to_a_visitor() -> None:
     [
         ("เข้าสู่ระบบ", "/login"),
         ("สมัครสมาชิก", "/signup"),
-        ("สมัครด้วยอีเมล @kmitl.ac.th", "/signup"),
     ],
 )
 async def test_landing_calls_to_action_lead_to_live_pages(

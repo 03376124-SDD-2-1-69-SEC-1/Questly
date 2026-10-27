@@ -1,5 +1,6 @@
 """Business logic for user notifications (ADR-0007 §6)."""
 
+import logging
 from datetime import timedelta
 
 from questly.core.assignments.models import ProblemFilter
@@ -15,11 +16,14 @@ from questly.core.notifications.models import (
 from questly.core.notifications.ports import (
     ClassroomMembers,
     ClassroomProblems,
+    EmailDeliveryError,
     EmailSender,
     JoinedClassrooms,
     NotificationRepository,
     UserAccounts,
 )
+
+logger = logging.getLogger(__name__)
 
 DUE_SOON_WINDOW = timedelta(hours=24)
 
@@ -46,9 +50,14 @@ class NotificationService:
         accounts: UserAccounts,
         *,
         base_url: str,
+        bulk_email_sender: EmailSender | None = None,
     ) -> None:
+        """`bulk_email_sender` carries member emails; None sends them like the rest."""
         self._repository = repository
         self._email_sender = email_sender
+        if bulk_email_sender is None:
+            bulk_email_sender = email_sender
+        self._bulk_email_sender = bulk_email_sender
         self._clock = clock
         self._members = members
         self._accounts = accounts
@@ -109,7 +118,11 @@ class NotificationService:
     ) -> None:
         """Store one notification per Member and email each of them.
 
-        The caller has already decided the Actor may notify this Classroom.
+        The emails go through the bulk sender, which production queues so a
+        publish never waits on the mail provider. A Member whose email fails is
+        logged and skipped: the others still get theirs and the notification
+        stays stored. The caller has already decided
+        the Actor may notify this Classroom.
         `payload` carries `classroom_id`, `assignment_id`, `title` and, for an
         update, `reason`.
         """
@@ -119,11 +132,21 @@ class NotificationService:
             user = self._accounts.get_user(membership.student_id)
             if user is None:
                 continue
-            self.send_email(
-                to=user.email,
-                subject=subject,
-                body=_member_email(self._base_url, user.full_name, subject, payload),
-            )
+            try:
+                self._bulk_email_sender.send(
+                    to=user.email,
+                    subject=subject,
+                    body=_member_email(
+                        self._base_url, user.full_name, subject, payload
+                    ),
+                )
+            except EmailDeliveryError as exc:
+                logger.warning(
+                    "member email for user %s not sent (subject %r): %s",
+                    user.id,
+                    subject,
+                    exc,
+                )
 
     def send_email(
         self,

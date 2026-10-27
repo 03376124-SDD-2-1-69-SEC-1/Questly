@@ -61,11 +61,19 @@ class NotificationRepository(Protocol):
         ...
 
 
+class EmailDeliveryError(Exception):
+    """An email could not be handed to the mail provider."""
+
+
 class EmailSender(Protocol):
     """Port for sending email without coupling Core to an email provider."""
 
     def send(self, *, to: str, subject: str, body: str) -> None:
-        """Send an email message."""
+        """Send an email message.
+
+        Adapters raise only EmailDeliveryError when delivery fails, never an
+        exception of the library they wrap.
+        """
         ...
 
 

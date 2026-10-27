@@ -14,16 +14,22 @@ from fastapi.templating import Jinja2Templates
 from questly.core.auth.csrf import require_csrf, set_anonymous_csrf_cookie
 from questly.core.auth.current import SESSION_COOKIE, auth_service, current_actor
 from questly.core.auth.models import Landing, NotAuthenticatedError
-from questly.core.auth.routes import set_session_cookie
+from questly.core.auth.routes import enforce_rate_limit, set_session_cookie
 from questly.core.auth.service import (
+    NO_LINK,
     AccountDeactivatedError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
+    ExternalCannotRequestInstructorError,
     FacultyRequiredError,
     InvalidCredentialsError,
+    InvalidEmailError,
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    RateLimitBucket,
+    UseKmitlOptionError,
+    VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
 )
@@ -34,6 +40,10 @@ LANDING_URLS = {
     Landing.CLASSROOMS: "/classes",
     Landing.ADMIN_SETTINGS: "/admin/settings",
 }
+
+# G-03 "สมัครในฐานะ" radio values (ADR-0013)
+KMITL = "kmitl"
+EXTERNAL = "external"
 
 FACULTIES = (
     "Engineering",
@@ -172,14 +182,27 @@ def _signup_page(
 
 
 def _verify_page(
-    request: Request, *, state: str, email: str = "", status_code: int = 200
+    request: Request,
+    *,
+    state: str,
+    email: str = "",
+    delivery_failed: bool = False,
+    status_code: int = 200,
 ) -> HTMLResponse:
+    link = NO_LINK
+    if state == "waiting" and email:
+        link = auth_service(request).shown_link_for(email)
     return _anonymous(
         request,
         _templates(request).TemplateResponse(
             request,
             "shared/g04_verify.html",
-            {"state": state, "email": email},
+            {
+                "state": state,
+                "email": email,
+                "delivery_failed": delivery_failed,
+                "link": link,
+            },
             status_code=status_code,
         ),
     )
@@ -215,6 +238,7 @@ def login_submit(
 ) -> Response:
     """G-01 submit: 01a wrong password, 01b email not verified."""
     require_csrf(request, csrf_token)
+    enforce_rate_limit(request, RateLimitBucket.LOGIN, email=email)
     try:
         result = auth_service(request).log_in(email=email, password=password)
     except InvalidCredentialsError:
@@ -248,7 +272,7 @@ def logout_submit(
 @router.get("/signup", response_class=HTMLResponse)
 def signup_page(request: Request) -> HTMLResponse:
     """G-03."""
-    return _signup_page(request, form={})
+    return _signup_page(request, form={"affiliation": KMITL})
 
 
 @router.post("/signup", response_class=HTMLResponse)
@@ -260,17 +284,22 @@ def signup_submit(
     confirm_password: Annotated[str, Form()],
     wants_instructor: Annotated[str, Form()] = "",
     faculty: Annotated[str, Form()] = "",
+    affiliation: Annotated[str, Form()] = KMITL,
     csrf_token: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
     """G-03 submit: 03a not a KMITL email, 03b already registered; success → G-04a."""
     require_csrf(request, csrf_token)
+    enforce_rate_limit(request, RateLimitBucket.SIGNUP)
+    external = affiliation == EXTERNAL
     form = {
         "full_name": full_name,
         "email": email,
         "wants_instructor": wants_instructor,
         "faculty": faculty,
+        "affiliation": EXTERNAL if external else KMITL,
     }
     error = ""
+    delivery_failed = False
     try:
         user = auth_service(request).sign_up(
             full_name=full_name,
@@ -279,9 +308,20 @@ def signup_submit(
             confirm_password=confirm_password,
             wants_instructor=wants_instructor == "on",
             faculty=faculty,
+            external=external,
         )
+    except VerificationEmailNotSentError as not_sent:
+        # the account and its token exist; G-04a offers the resend button
+        user = not_sent.user
+        delivery_failed = True
     except NotKmitlEmailError:
         error = "not_kmitl_email"
+    except UseKmitlOptionError:
+        error = "use_kmitl_option"
+    except InvalidEmailError:
+        error = "invalid_email"
+    except ExternalCannotRequestInstructorError:
+        error = "external_cannot_request_instructor"
     except EmailAlreadyRegisteredError:
         error = "already_registered"
     except PasswordTooShortError:
@@ -294,7 +334,9 @@ def signup_submit(
         error = "full_name_required"
     if error:
         return _signup_page(request, form=form, error=error, status_code=422)
-    return _verify_page(request, state="waiting", email=user.email)
+    return _verify_page(
+        request, state="waiting", email=user.email, delivery_failed=delivery_failed
+    )
 
 
 @router.get("/verify", response_class=HTMLResponse)
@@ -319,5 +361,12 @@ def verify_resend(
 ) -> HTMLResponse:
     """G-01b / G-04c "Send a new link"."""
     require_csrf(request, csrf_token)
-    auth_service(request).resend_verification(email)
-    return _verify_page(request, state="waiting", email=email)
+    enforce_rate_limit(request, RateLimitBucket.RESEND, email=email)
+    delivery_failed = False
+    try:
+        auth_service(request).resend_verification(email)
+    except VerificationEmailNotSentError:
+        delivery_failed = True
+    return _verify_page(
+        request, state="waiting", email=email, delivery_failed=delivery_failed
+    )

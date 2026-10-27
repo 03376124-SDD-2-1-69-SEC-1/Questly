@@ -233,3 +233,12 @@ class TestSQLDocumentRepository(DocumentRepositoryContract):
                 expected_status=DocumentStatus.UPLOADED,
                 new_status=DocumentStatus.INGESTING,
             )
+
+    def test_database_failure_on_fail_ingesting_surfaces_as_repository_error(
+        self,
+    ) -> None:
+        """A lost connection is a repository error, not a count of zero."""
+        broken = SQLKnowledgeDocumentRepository(_LostConnection)
+
+        with pytest.raises(DocumentRepositoryError):
+            broken.fail_ingesting()

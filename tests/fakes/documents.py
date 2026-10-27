@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from questly.core.documents.models import (
     DocumentLibraryItem,
@@ -10,7 +11,7 @@ from questly.core.documents.models import (
     KnowledgeDocument,
     StoredObject,
 )
-from questly.core.documents.ports import ObjectStorageError
+from questly.core.documents.ports import DocumentIngestionError, ObjectStorageError
 
 FAKE_BUCKET = "fake-bucket"
 
@@ -123,6 +124,18 @@ class FakeKnowledgeDocumentRepository:
         self._items[document_id] = replace(document, status=new_status)
         return True
 
+    def fail_ingesting(self) -> int:
+        stuck = [
+            document_id
+            for document_id, document in self._items.items()
+            if document.status is DocumentStatus.INGESTING
+        ]
+        for document_id in stuck:
+            self._items[document_id] = replace(
+                self._items[document_id], status=DocumentStatus.FAILED
+            )
+        return len(stuck)
+
     def seed_usage(self, document_id: int, count: int = 1) -> None:
         """Set saved-draft usage for deterministic contract and service tests."""
         self._usage[document_id] += count
@@ -140,3 +153,38 @@ class FakeKnowledgeDocumentRepository:
             document=self._items[document_id],
             used_in=self._usage[document_id],
         )
+
+
+@dataclass(frozen=True, slots=True)
+class IngestRequest:
+    """What one `DocumentIngestor.ingest` call received."""
+
+    document_id: int
+    object_key: str
+    data: bytes
+    metadata: Mapping[str, str]
+
+
+@dataclass(slots=True)
+class FakeDocumentIngestor:
+    """Record ingest calls; raise `failure` from each one when set."""
+
+    failure: Exception | None = None
+    requests: list[IngestRequest] = field(default_factory=list)
+
+    def ingest(
+        self,
+        *,
+        document_id: int,
+        object_key: str,
+        data: bytes,
+        metadata: Mapping[str, str],
+    ) -> None:
+        self.requests.append(IngestRequest(document_id, object_key, data, metadata))
+        if self.failure is not None:
+            raise self.failure
+
+
+def failing_ingestor() -> FakeDocumentIngestor:
+    """An ingestor that rejects every document the way the port's adapter does."""
+    return FakeDocumentIngestor(failure=DocumentIngestionError("unreadable PDF"))

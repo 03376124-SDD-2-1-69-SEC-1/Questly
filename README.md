@@ -166,6 +166,106 @@ Set `OPENROUTER_API_KEY` to call OpenRouter for generation and embeddings
 values in `src/questly/config.py`. Never commit `.env` or place real
 credentials in `.env.example`.
 
+#### Email
+
+`EMAIL_BACKEND` picks how verification and notification emails leave the app:
+
+| `EMAIL_BACKEND` | Behaviour | Variables it needs |
+| --- | --- | --- |
+| `stub` (default outside production) | Sends nothing. The whole email, link included, is written to the log. | none |
+| `smtp` | Sends through an SMTP server with the standard library. | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`; optional `SMTP_SECURITY` (`starttls` by default, or `ssl`) and `SMTP_PORT` (587 for `starttls`, 465 for `ssl`) |
+| `resend` | Sends through the [Resend](https://resend.com) REST API. | `EMAIL_FROM`, `RESEND_API_KEY` |
+
+`EMAIL_FROM` may be a bare address or `Questly <noreply@your-domain>`. A backend
+with missing variables stops the app at startup, and the error names every
+missing variable. Messages are plain text in UTF-8, each send times out after
+10 seconds, and nothing retries.
+
+- **Production refuses `stub`.** With `APP_ENV=production`, an unset or `stub`
+  `EMAIL_BACKEND` stops the app at startup. Use `smtp` or `resend`.
+- **Cloud hosts.** The free tiers of Render and Railway block outbound SMTP
+  ports, so use `resend` there.
+- **Mailing `@kmitl.ac.th`.** Resend only delivers to arbitrary recipients from
+  a verified sending domain, so verify your domain in Resend and send from it.
+- **Development link.** With the `stub` backend and `APP_ENV` other than
+  `production`, G-04 shows the verification link on the page so you can follow it
+  without a mailbox. It never appears in production, with `smtp` or `resend`, or
+  in any API response. Anyone who can reach the app can read the link for any
+  unverified address, so never run the stub on a host other people can reach
+  (a shared staging server, say) and set `APP_ENV=production` or a real backend there.
+- **A failed send is not a failed sign-up.** The account and its link stay
+  created. G-04 says the email could not be sent and offers "ส่งอีเมลอีกครั้ง",
+  and `POST /api/v1/auth/verify/resend` answers 503 `email_delivery_failed`.
+
+#### Sign-up
+
+G-03 asks who is signing up (ADR-0013):
+
+| Choice | Email it accepts | Account |
+| --- | --- | --- |
+| บุคคลใน KMITL (default) | An address ending in `@kmitl.ac.th`. | Student. May tick "I am an instructor" to ask an Admin for Instructor rights. |
+| บุคคลภายนอก | Any valid address that does not end in `@kmitl.ac.th`. | Student only. It cannot ask for Instructor rights. |
+
+The API takes the same choice as `"external": true` on
+`POST /api/v1/auth/signup`. Nothing new is stored: the email domain says which
+kind an account is.
+
+KMITL's mail system filters the mail Questly sends, so a KMITL Student may never
+see the verification email. `ONSCREEN_VERIFY_DOMAINS` lists the email domains
+whose G-04 page shows the verification link as a "ยืนยันอีเมล" button:
+
+```bash
+ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th
+```
+
+The list is comma-separated and case-insensitive, and it is empty by default. An
+entry that is not a domain stops the app at startup. A listed domain gets the
+button in every `APP_ENV`, production included. The email is still sent, and
+the button shows even when the send fails. The link never appears in an API
+response.
+
+**Security.** The button does not prove that the person owns the mailbox. Anyone
+who knows a `@kmitl.ac.th` address can create and verify a Student account with
+it. Instructor rights still need an Admin's approval. Remove the domain from
+`ONSCREEN_VERIFY_DOMAINS` once KMITL delivers our mail.
+
+#### Security hardening
+
+To run Questly on a server, follow [docs/deploy.md](docs/deploy.md). It ends
+with a checklist to finish before anyone outside the team gets the URL. The
+served app (`questly.main:app`) has these protections:
+
+- **Rate limits.** A lab shares one campus NAT address, so each client
+  address only has a loose flood guard: 100 logins in 5 minutes, 60 sign-ups
+  in an hour and 30 verification resends in 15 minutes. Each account (email)
+  may also post 10 logins and 3 resends in 15 minutes. Every limit counts the
+  page and the `/api/v1/auth/` endpoint together. Past the limit a page gets
+  G-05 with status 429 and the API gets 429 `rate_limited`, both with
+  `Retry-After`. The counts live in process memory and reset on restart. Behind
+  a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips` set to that
+  proxy only, as `docs/deploy.md` does, or every client shares the proxy's
+  address. The demo and the tests do not rate-limit.
+- **Headers.** Every response carries `X-Content-Type-Options`,
+  `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. HTML
+  pages also carry a `Content-Security-Policy` that allows no JavaScript, styles
+  from the app and Google Fonts, and forms that post only to the app. A task
+  that adds JavaScript or another outside source must update
+  `CONTENT_SECURITY_POLICY` in `src/questly/main.py`. `Strict-Transport-Security`
+  is sent whenever cookies are `Secure`, which is everywhere except the demo and
+  the tests.
+- **API docs.** With `APP_ENV=production`, `/docs`, `/redoc` and
+  `/openapi.json` answer 404.
+- **Health checks.** `/health/db` and `/health/r2` answer 503 with
+  `database unavailable` or `storage unavailable`. The cause goes to the log.
+- **Member emails are queued.** Emails to Members about a published or updated
+  problem go through a queue that one background thread sends, so a publish
+  does not wait for the mail provider. Emails still in the queue are lost when
+  the process stops or restarts. Verification emails are still sent during the
+  request. The demo and the tests send everything during the request.
+- **One worker.** Rate-limit counts, the email queue, generation progress and
+  on-screen verification links live in process memory. Run exactly one uvicorn
+  worker.
+
 ### 5. Apply Database Migrations
 
 ```bash

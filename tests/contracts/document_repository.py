@@ -156,3 +156,57 @@ class DocumentRepositoryContract:
             expected_status=DocumentStatus.UPLOADED,
             new_status=DocumentStatus.READY,
         )
+
+    def test_fail_ingesting_fails_every_owners_stuck_document(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        stuck = [seed_document(10, "stuck-a.pdf"), seed_document(20, "stuck-b.pdf")]
+        for document, owner in zip(stuck, (10, 20), strict=True):
+            assert repository.update_status_for_owner(
+                document.id,
+                owner,
+                expected_status=DocumentStatus.UPLOADED,
+                new_status=DocumentStatus.INGESTING,
+            )
+        untouched = {
+            status: seed_document(10, f"{status.value}.pdf")
+            for status in (
+                DocumentStatus.UPLOADED,
+                DocumentStatus.READY,
+                DocumentStatus.FAILED,
+            )
+        }
+        for status, document in untouched.items():
+            if status is not DocumentStatus.UPLOADED:
+                assert repository.update_status_for_owner(
+                    document.id,
+                    10,
+                    expected_status=DocumentStatus.UPLOADED,
+                    new_status=status,
+                )
+
+        assert repository.fail_ingesting() == 2
+
+        for document, owner in zip(stuck, (10, 20), strict=True):
+            failed = repository.get_for_owner(document.id, owner)
+            assert failed is not None
+            assert failed.document.status is DocumentStatus.FAILED
+        for status, document in untouched.items():
+            kept = repository.get_for_owner(document.id, 10)
+            assert kept is not None
+            assert kept.document.status is status
+
+    def test_fail_ingesting_returns_zero_when_nothing_is_stuck(
+        self,
+        repository: KnowledgeDocumentRepository,
+        seed_document: SeedDocument,
+    ) -> None:
+        document = seed_document(10, "idle.pdf")
+
+        assert repository.fail_ingesting() == 0
+
+        kept = repository.get_for_owner(document.id, 10)
+        assert kept is not None
+        assert kept.document.status is DocumentStatus.UPLOADED
