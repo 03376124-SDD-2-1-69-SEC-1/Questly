@@ -143,6 +143,7 @@ from questly.database.session import (
 from questly.database.storage.r2 import R2ObjectStorage, build_r2_client, check_r2
 from questly.integrations.clock import SystemClock
 from questly.integrations.email import (
+    QueuedEmailSender,
     ResendEmailSender,
     SmtpEmailSender,
     StubEmailSender,
@@ -302,6 +303,7 @@ def create_app(
     vector_repository: VectorRepository | None = None,
     auth_repository: AuthRepository | None = None,
     email_sender: EmailSender | None = None,
+    bulk_email_sender: EmailSender | None = None,
     notification_repository: NotificationRepository | None = None,
     admin_repository: AdminRepository | None = None,
     system_health_checker: SystemHealthChecker | None = None,
@@ -417,6 +419,8 @@ def create_app(
         classroom_repository,
         auth_repository,
         base_url=use_settings().base_url,
+        # None sends member emails through email_sender, on the request.
+        bulk_email_sender=bulk_email_sender,
     )
     application.state.notification_service = notification_service
 
@@ -742,16 +746,24 @@ def start_sweeper(recover: Callable[[], None]) -> None:
 
 @functools.cache
 def production_app() -> FastAPI:
-    """The served app, its one judging sweeper and its ingestion recovery.
+    """The served app with its judging sweeper, member-email queue and recovery.
 
-    Started here and never in `create_app`, so tests build apps without
-    threads or startup writes; a lifespan hook would need `async def`, which
-    this codebase does not use.
+    The sweeper, the queue and the ingestion recovery start here and never in
+    `create_app`, so tests build apps without threads or startup writes; a
+    lifespan hook would need `async def`, which this codebase does not use.
+    Verification emails stay on the request, so G-04a can say whether one went
+    out.
     """
     settings = get_settings()
+    email_sender = _build_email_sender(settings)
+    member_emails = QueuedEmailSender(email_sender)
     application = create_app(
-        settings=settings, expose_docs=settings.app_env != PRODUCTION
+        settings=settings,
+        expose_docs=settings.app_env != PRODUCTION,
+        email_sender=email_sender,
+        bulk_email_sender=member_emails,
     )
+    member_emails.start()
     try:
         application.state.fail_stuck_ingestions()
     except Exception:

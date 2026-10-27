@@ -106,6 +106,7 @@ def build_app(
     admin_repository: AdminRepository | None = None,
     system_health_checker: SystemHealthChecker | None = None,
     verification_mailer: EmailSender | None = None,
+    bulk_email_sender: EmailSender | None = None,
     clock: Clock | None = None,
     classroom_repository: ClassroomRepository | None = None,
     classroom_stats: ClassroomStats | None = None,
@@ -182,6 +183,8 @@ def build_app(
         vector_repository=vector_repository,
         auth_repository=auth_repository,
         email_sender=verification_mailer,
+        # None: member emails go through verification_mailer, never a queue.
+        bulk_email_sender=bulk_email_sender,
         notification_repository=notification_repository,
         admin_repository=admin_repository,
         system_health_checker=system_health_checker,

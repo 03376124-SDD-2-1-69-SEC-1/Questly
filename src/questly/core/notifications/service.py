@@ -50,9 +50,14 @@ class NotificationService:
         accounts: UserAccounts,
         *,
         base_url: str,
+        bulk_email_sender: EmailSender | None = None,
     ) -> None:
+        """`bulk_email_sender` carries member emails; None sends them like the rest."""
         self._repository = repository
         self._email_sender = email_sender
+        if bulk_email_sender is None:
+            bulk_email_sender = email_sender
+        self._bulk_email_sender = bulk_email_sender
         self._clock = clock
         self._members = members
         self._accounts = accounts
@@ -113,8 +118,10 @@ class NotificationService:
     ) -> None:
         """Store one notification per Member and email each of them.
 
-        A Member whose email fails is logged and skipped: the others still get
-        theirs and the notification stays stored. The caller has already decided
+        The emails go through the bulk sender, which production queues so a
+        publish never waits on the mail provider. A Member whose email fails is
+        logged and skipped: the others still get theirs and the notification
+        stays stored. The caller has already decided
         the Actor may notify this Classroom.
         `payload` carries `classroom_id`, `assignment_id`, `title` and, for an
         update, `reason`.
@@ -126,7 +133,7 @@ class NotificationService:
             if user is None:
                 continue
             try:
-                self.send_email(
+                self._bulk_email_sender.send(
                     to=user.email,
                     subject=subject,
                     body=_member_email(
