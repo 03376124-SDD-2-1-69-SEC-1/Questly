@@ -109,6 +109,10 @@ def test_production_accepts_a_configured_base_url(
 ) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("BASE_URL", "https://questly.example.com")
+    # production refuses the stub (OPS-37), so give it a real backend
+    monkeypatch.setenv("EMAIL_BACKEND", "resend")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@questly.example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
     assert config.get_settings().base_url == "https://questly.example.com"
 
