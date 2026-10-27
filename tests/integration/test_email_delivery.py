@@ -202,6 +202,13 @@ async def test_a_failing_member_email_is_logged_without_the_body(
     )
     assert "Reminder: Binary search" in ours
     assert "/classes/" not in ours
+    ours_records = [
+        record
+        for record in caplog.records
+        if record.name == "questly.core.notifications.service"
+    ]
+    assert all(record.exc_info is None for record in ours_records)
+    assert "user 2" in ours or "user 3" in ours
 
 
 @pytest.mark.anyio
@@ -271,3 +278,19 @@ async def test_demo_link_never_reaches_api_json() -> None:
     for response in (signup, resend):
         assert "token=" not in response.text
         assert "/verify" not in response.text
+
+
+@pytest.mark.anyio
+async def test_demo_link_is_forgotten_once_the_account_is_verified() -> None:
+    mailer = StubEmailSender()
+    async with _client(build_app(verification_mailer=mailer)) as client:
+        await post_form(client, "/signup", SIGN_UP, page="/signup")
+        link = LINK.search(mailer.messages[-1].body)
+        assert link is not None
+        await client.get(link.group(0))
+        again = await post_form(
+            client, "/verify/resend", {"email": SIGN_UP["email"]}, page="/verify"
+        )
+
+    assert 'data-state="demo-link"' not in again.text
+    assert link.group(0) not in again.text

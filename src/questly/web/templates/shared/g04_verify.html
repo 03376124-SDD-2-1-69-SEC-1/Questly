@@ -14,7 +14,7 @@
       <span class="icon-well icon-well-lg">{{ icon("send", 32) }}</span>
       <h1>ยืนยันอีเมลของคุณ</h1>
       {% if delivery_failed %}
-      {% call alert(tone="warn", state="delivery-failed") %}ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %} บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่{% endcall %}
+      {% call alert(tone="warn", state="delivery-failed") %}<span>ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %}<br>บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่</span>{% endcall %}
       {% else %}
       <p class="text-mid">เราได้ส่งลิงก์ยืนยัน{% if email %}ไปที่<br><strong class="text-ink">{{ email }}</strong>{% endif %}</p>
       {% endif %}

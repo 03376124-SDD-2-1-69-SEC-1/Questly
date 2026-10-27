@@ -160,6 +160,7 @@ class AuthService:
             raise VerificationLinkExpiredError
         self._repository.update_verification_token(replace(stored, used=True))
         user = self._require_user(stored.user_id)
+        self._latest_links.pop(user.email, None)
         return self._repository.update_user(replace(user, email_verified=True))
 
     def resend_verification(self, email: str) -> None:

@@ -10,12 +10,14 @@ from typing import Self
 import httpx
 import pytest
 
+from questly.config import Settings
 from questly.core.notifications.ports import EmailDeliveryError
 from questly.integrations.email import (
     RESEND_EMAILS_URL,
     SEND_TIMEOUT_SECONDS,
     ResendEmailSender,
     SmtpEmailSender,
+    StubEmailSender,
 )
 
 PASSWORD = "hunter2-app-password"
@@ -293,3 +295,47 @@ def test_resend_default_client_uses_the_send_timeout() -> None:
     sender = ResendEmailSender(api_key=API_KEY, sender=SENDER)
 
     assert sender._client.timeout == httpx.Timeout(SEND_TIMEOUT_SECONDS)
+
+
+def _settings(**override: object) -> Settings:
+    return Settings(
+        database_url="postgresql+psycopg://unused:unused@localhost/unused",
+        r2_endpoint_url="https://unused.r2.cloudflarestorage.com",
+        r2_bucket_name="unused",
+        r2_access_key_id="unused",
+        r2_secret_access_key="unused",
+        **override,
+    )
+
+
+@pytest.mark.parametrize(
+    ("override", "expected"),
+    [
+        ({}, StubEmailSender),
+        ({"email_backend": "stub"}, StubEmailSender),
+        (
+            {
+                "email_backend": "smtp",
+                "email_from": SENDER,
+                "smtp_host": "smtp.example.com",
+                "smtp_username": "u",
+                "smtp_password": PASSWORD,
+            },
+            SmtpEmailSender,
+        ),
+        (
+            {
+                "email_backend": "resend",
+                "email_from": SENDER,
+                "resend_api_key": API_KEY,
+            },
+            ResendEmailSender,
+        ),
+    ],
+)
+def test_main_builds_the_adapter_the_backend_names(
+    override: dict[str, str], expected: type
+) -> None:
+    from questly.main import _build_email_sender
+
+    assert type(_build_email_sender(_settings(**override))) is expected

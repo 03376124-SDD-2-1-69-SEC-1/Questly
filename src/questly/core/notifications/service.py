@@ -133,12 +133,12 @@ class NotificationService:
                         self._base_url, user.full_name, subject, payload
                     ),
                 )
-            except EmailDeliveryError:
+            except EmailDeliveryError as exc:
                 logger.warning(
-                    "member email for user %s not sent (subject %r)",
+                    "member email for user %s not sent (subject %r): %s",
                     user.id,
                     subject,
-                    exc_info=True,
+                    exc,
                 )
 
     def send_email(
