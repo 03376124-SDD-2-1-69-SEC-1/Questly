@@ -41,7 +41,7 @@ from questly.ai.ingestion.pipeline import PdfIngestionService
 from questly.ai.quota import OpenRouterProviderQuota, StubProviderQuota
 from questly.ai.retrieval.service import RetrievalService
 from questly.api_errors import ApplicationErrorResponse
-from questly.config import Settings, get_settings
+from questly.config import PRODUCTION, Settings, get_settings
 from questly.core.admin.pages import router as admin_page_router
 from questly.core.admin.ports import AdminRepository, SystemHealthChecker
 from questly.core.admin.routes import router as admin_router
@@ -140,7 +140,11 @@ from questly.database.session import (
 )
 from questly.database.storage.r2 import R2ObjectStorage, build_r2_client, check_r2
 from questly.integrations.clock import SystemClock
-from questly.integrations.email import StubEmailSender
+from questly.integrations.email import (
+    ResendEmailSender,
+    SmtpEmailSender,
+    StubEmailSender,
+)
 from questly.integrations.generation_jobs import InMemoryGenerationJobStore
 from questly.integrations.judge0 import StubCodeRunner, connect_judge0
 
@@ -190,6 +194,24 @@ def build_code_runner(settings: Settings) -> Runner:
     if not settings.judge0_url:
         return StubCodeRunner()
     return connect_judge0(settings.judge0_url, settings.judge0_auth_token)
+
+
+def _build_email_sender(settings: Settings) -> EmailSender:
+    """The adapter EMAIL_BACKEND names; config.py has checked its variables."""
+    if settings.email_backend == "smtp":
+        return SmtpEmailSender(
+            host=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            sender=settings.email_from,
+            security=settings.smtp_security,
+        )
+    if settings.email_backend == "resend":
+        return ResendEmailSender(
+            api_key=settings.resend_api_key, sender=settings.email_from
+        )
+    return StubEmailSender()
 
 
 def create_app(
@@ -297,7 +319,7 @@ def create_app(
         )
 
     if email_sender is None:
-        email_sender = StubEmailSender()
+        email_sender = _build_email_sender(use_settings())
 
     if notification_repository is None:
         notification_repository = SQLNotificationRepository(use_session_factory())
@@ -348,6 +370,11 @@ def create_app(
         notification_service,
         clock,
         base_url=use_settings().base_url,
+        # The stub sends nothing, so development shows the link on G-04a.
+        show_verification_link=(
+            isinstance(email_sender, StubEmailSender)
+            and use_settings().app_env != PRODUCTION
+        ),
     )
     application.state.auth_service = auth_service
     admin_service = AdminService(

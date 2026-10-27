@@ -24,6 +24,7 @@ from questly.core.auth.service import (
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
 )
@@ -172,14 +173,27 @@ def _signup_page(
 
 
 def _verify_page(
-    request: Request, *, state: str, email: str = "", status_code: int = 200
+    request: Request,
+    *,
+    state: str,
+    email: str = "",
+    delivery_failed: bool = False,
+    status_code: int = 200,
 ) -> HTMLResponse:
+    demo_link = ""
+    if state == "waiting" and email:
+        demo_link = auth_service(request).demo_link_for(email)
     return _anonymous(
         request,
         _templates(request).TemplateResponse(
             request,
             "shared/g04_verify.html",
-            {"state": state, "email": email},
+            {
+                "state": state,
+                "email": email,
+                "delivery_failed": delivery_failed,
+                "demo_link": demo_link,
+            },
             status_code=status_code,
         ),
     )
@@ -271,6 +285,7 @@ def signup_submit(
         "faculty": faculty,
     }
     error = ""
+    delivery_failed = False
     try:
         user = auth_service(request).sign_up(
             full_name=full_name,
@@ -280,6 +295,10 @@ def signup_submit(
             wants_instructor=wants_instructor == "on",
             faculty=faculty,
         )
+    except VerificationEmailNotSentError as not_sent:
+        # the account and its token exist; G-04a offers the resend button
+        user = not_sent.user
+        delivery_failed = True
     except NotKmitlEmailError:
         error = "not_kmitl_email"
     except EmailAlreadyRegisteredError:
@@ -294,7 +313,9 @@ def signup_submit(
         error = "full_name_required"
     if error:
         return _signup_page(request, form=form, error=error, status_code=422)
-    return _verify_page(request, state="waiting", email=user.email)
+    return _verify_page(
+        request, state="waiting", email=user.email, delivery_failed=delivery_failed
+    )
 
 
 @router.get("/verify", response_class=HTMLResponse)
@@ -319,5 +340,11 @@ def verify_resend(
 ) -> HTMLResponse:
     """G-01b / G-04c "Send a new link"."""
     require_csrf(request, csrf_token)
-    auth_service(request).resend_verification(email)
-    return _verify_page(request, state="waiting", email=email)
+    delivery_failed = False
+    try:
+        auth_service(request).resend_verification(email)
+    except VerificationEmailNotSentError:
+        delivery_failed = True
+    return _verify_page(
+        request, state="waiting", email=email, delivery_failed=delivery_failed
+    )

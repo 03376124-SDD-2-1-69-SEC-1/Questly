@@ -2,6 +2,7 @@
 {% from "_components/forms.html" import csrf_field, field, button, hidden, link_button with context %}
 {% from "_components/auth.html" import logo, brand_panel %}
 {% from "_components/icons.html" import icon %}
+{% from "_components/ui.html" import alert %}
 {% block title %}Verify email · Questly{% endblock %}
 {% block main %}
 <main class="auth-page" data-page="G-04">
@@ -12,8 +13,15 @@
     <div class="flex flex-col items-center gap-3" data-state="G-04a">
       <span class="icon-well icon-well-lg">{{ icon("send", 32) }}</span>
       <h1>ยืนยันอีเมลของคุณ</h1>
+      {% if delivery_failed %}
+      {% call alert(tone="warn", state="delivery-failed") %}ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %} บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่{% endcall %}
+      {% else %}
       <p class="text-mid">เราได้ส่งลิงก์ยืนยัน{% if email %}ไปที่<br><strong class="text-ink">{{ email }}</strong>{% endif %}</p>
+      {% endif %}
       <div class="notice w-full">{{ icon("clock") }}<span>กำลังรอการยืนยันอีเมล<br><small>Links are valid for 24 hours.</small></span></div>
+      {% if demo_link %}
+      <div class="notice w-full" data-state="demo-link">{{ icon("send") }}<span>Email is not sent in this mode.<br><small><a class="link" data-demo-link href="{{ demo_link }}">Open the verification link</a></small></span></div>
+      {% endif %}
     </div>
     {% elif state == "verified" %}
     <div class="flex flex-col items-center gap-3" data-state="G-04b">
