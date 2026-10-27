@@ -217,6 +217,22 @@ STRICT_TRANSPORT_SECURITY = "max-age=31536000"
 _DOCS_PATHS = ("/docs", "/docs/oauth2-redirect", "/redoc")
 
 
+def apply_security_headers(
+    headers: MutableHeaders,
+    *,
+    path: str,
+    strict_transport: bool,
+    paths_without_csp: tuple[str, ...],
+) -> None:
+    """Set SECURITY_HEADERS, HSTS when asked, and the CSP on HTML responses."""
+    headers.update(SECURITY_HEADERS)
+    if strict_transport:
+        headers["Strict-Transport-Security"] = STRICT_TRANSPORT_SECURITY
+    is_html = headers.get("content-type", "").startswith("text/html")
+    if is_html and path not in paths_without_csp:
+        headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+
+
 class SecurityHeadersMiddleware:
     """Add SECURITY_HEADERS to every response and the CSP to HTML pages.
 
@@ -243,13 +259,12 @@ class SecurityHeadersMiddleware:
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                headers.update(SECURITY_HEADERS)
-                if self._strict_transport:
-                    headers["Strict-Transport-Security"] = STRICT_TRANSPORT_SECURITY
-                is_html = headers.get("content-type", "").startswith("text/html")
-                if is_html and path not in self._paths_without_csp:
-                    headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+                apply_security_headers(
+                    MutableHeaders(scope=message),
+                    path=path,
+                    strict_transport=self._strict_transport,
+                    paths_without_csp=self._paths_without_csp,
+                )
             await send(message)
 
         await self._app(scope, receive, send_with_headers)
@@ -663,13 +678,22 @@ def create_app(
     def server_error(request: Request, error: Exception) -> Response:
         """An unhandled bug: a 500 page for browsers, the usual envelope for the API."""
         if request.url.path.startswith(("/api/", "/health")):
-            return JSONResponse(
+            response: Response = JSONResponse(
                 status_code=500,
                 content={
                     "detail": {"code": "internal_error", "message": "Server error"}
                 },
             )
-        return error_page(request, 500)
+        else:
+            response = error_page(request, 500)
+        # Starlette sends this response from outside the user middleware stack.
+        apply_security_headers(
+            response.headers,
+            path=request.url.path,
+            strict_transport=request.app.state.secure_cookies,
+            paths_without_csp=(),
+        )
+        return response
 
     @application.exception_handler(RequestValidationError)
     def request_validation_error(

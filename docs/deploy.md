@@ -243,6 +243,8 @@ Do every item before anyone outside the team gets the URL.
       `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy` and
       `Strict-Transport-Security`.
 - [ ] 11 quick logins with a wrong password from one IP: the 11th gets 429.
+- [ ] A request from a second network (phone on mobile data) is not limited while the first IP is. If both share one bucket, uvicorn is not honouring the forwarded client address and one person can lock everyone out; recheck `--proxy-headers` and `--forwarded-allow-ips`.
+- [ ] Know the limits are per public IP: students on one campus NAT share the buckets (login 10 per 5 min, sign-up 5 per hour), so a whole lab signing up at once can see 429.
 - [ ] A Student who is not a Member gets 404 on another Classroom's
       Assignment URL, and a non-Admin gets 403 on `/admin`.
 - [ ] An Assignment titled `<img src=x onerror=alert(1)>` renders as text.

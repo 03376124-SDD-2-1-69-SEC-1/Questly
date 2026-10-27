@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 from questly.main import CONTENT_SECURITY_POLICY
 from tests.fakes.app import build_app
@@ -94,3 +95,24 @@ async def test_hidden_docs_paths_get_the_csp_on_their_404_page() -> None:
 
     assert status == 404
     assert headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/boom", "/api/v1/boom"])
+async def test_unhandled_500_carries_the_security_headers(path: str) -> None:
+    app = build_app(secure_cookies=True)
+
+    def boom() -> None:
+        raise RuntimeError("bug")
+
+    app.add_api_route("/boom", boom)
+    app.add_api_route("/api/v1/boom", boom)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        response = await c.get(path)
+
+    assert response.status_code == 500
+    for name, value in COMMON_HEADERS.items():
+        assert response.headers[name] == value, name
+    assert response.headers["strict-transport-security"] == "max-age=31536000"
+    assert ("content-security-policy" in response.headers) == (path == "/boom")
