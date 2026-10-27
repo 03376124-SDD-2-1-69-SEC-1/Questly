@@ -6,6 +6,18 @@ import pytest
 
 from questly import config
 
+EMAIL_VARIABLES = (
+    "EMAIL_BACKEND",
+    "EMAIL_FROM",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_SECURITY",
+    "RESEND_API_KEY",
+    "APP_ENV",
+)
+
 
 @pytest.fixture(autouse=True)
 def required_environment(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
@@ -16,6 +28,10 @@ def required_environment(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
     monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
     monkeypatch.setenv("GENERATION_MODEL", "configured/model")
+    # Blank rather than unset: load_dotenv() would refill an unset variable
+    # from a developer's .env.
+    for variable in EMAIL_VARIABLES:
+        monkeypatch.setenv(variable, "")
     yield
     config.get_settings.cache_clear()
 
@@ -165,3 +181,164 @@ def test_base_url_with_http_or_https_scheme_is_accepted(
     monkeypatch.setenv("BASE_URL", value)
 
     assert config.get_settings().base_url == value.rstrip("/")
+
+
+def _smtp_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("EMAIL_FROM", "Questly <noreply@questly.example.com>")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "mailer")
+    monkeypatch.setenv("SMTP_PASSWORD", "s3cret-smtp-password")
+
+
+def test_email_backend_defaults_to_the_stub_outside_production() -> None:
+    settings = config.get_settings()
+
+    assert settings.email_backend == "stub"
+    assert settings.app_env == ""
+
+
+def test_email_backend_is_case_insensitive_and_trimmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAIL_BACKEND", " Resend ")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@questly.example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "re_key")
+
+    assert config.get_settings().email_backend == "resend"
+
+
+def test_unknown_email_backend_names_the_allowed_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAIL_BACKEND", "sendgrid")
+
+    with pytest.raises(config.MissingConfigurationError) as raised:
+        config.get_settings()
+
+    message = str(raised.value)
+    assert "EMAIL_BACKEND" in message
+    for allowed in ("stub", "smtp", "resend"):
+        assert allowed in message
+
+
+def test_smtp_reads_every_variable_and_keeps_the_display_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _smtp_environment(monkeypatch)
+    monkeypatch.setenv("SMTP_PORT", "2525")
+    monkeypatch.setenv("SMTP_SECURITY", "SSL")
+
+    settings = config.get_settings()
+
+    assert settings.email_backend == "smtp"
+    assert settings.email_from == "Questly <noreply@questly.example.com>"
+    assert (settings.smtp_host, settings.smtp_port, settings.smtp_security) == (
+        "smtp.example.com",
+        2525,
+        "ssl",
+    )
+    assert settings.smtp_username == "mailer"
+    assert settings.smtp_password == "s3cret-smtp-password"
+
+
+@pytest.mark.parametrize(
+    ("security", "port"), [("", 587), ("starttls", 587), ("ssl", 465)]
+)
+def test_smtp_port_defaults_follow_the_security_mode(
+    monkeypatch: pytest.MonkeyPatch, security: str, port: int
+) -> None:
+    _smtp_environment(monkeypatch)
+    monkeypatch.setenv("SMTP_SECURITY", security)
+
+    settings = config.get_settings()
+
+    assert settings.smtp_port == port
+    assert settings.smtp_security == (security or "starttls")
+
+
+def test_smtp_lists_every_missing_variable_and_no_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+
+    with pytest.raises(config.MissingConfigurationError) as raised:
+        config.get_settings()
+
+    message = str(raised.value)
+    for name in ("EMAIL_FROM", "SMTP_USERNAME", "SMTP_PASSWORD"):
+        assert name in message
+    assert "SMTP_HOST" not in message
+    assert "smtp.example.com" not in message
+
+
+def test_resend_lists_every_missing_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAIL_BACKEND", "resend")
+
+    with pytest.raises(config.MissingConfigurationError) as raised:
+        config.get_settings()
+
+    message = str(raised.value)
+    assert "EMAIL_FROM" in message
+    assert "RESEND_API_KEY" in message
+
+
+@pytest.mark.parametrize("security", ["tls", "none", "STARTTLS-ish"])
+def test_invalid_smtp_security_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, security: str
+) -> None:
+    _smtp_environment(monkeypatch)
+    monkeypatch.setenv("SMTP_SECURITY", security)
+
+    with pytest.raises(config.MissingConfigurationError, match="SMTP_SECURITY"):
+        config.get_settings()
+
+
+@pytest.mark.parametrize("port", ["abc", "0", "65536", "-1", "58.7", "٤٦٥"])
+def test_invalid_smtp_port_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    _smtp_environment(monkeypatch)
+    monkeypatch.setenv("SMTP_PORT", port)
+
+    with pytest.raises(config.MissingConfigurationError, match="SMTP_PORT"):
+        config.get_settings()
+
+
+@pytest.mark.parametrize("backend", [None, "", "  ", "stub", "STUB"])
+def test_production_refuses_a_missing_or_stub_email_backend(
+    monkeypatch: pytest.MonkeyPatch, backend: str | None
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("BASE_URL", "https://questly.example.com")
+    if backend is not None:
+        monkeypatch.setenv("EMAIL_BACKEND", backend)
+
+    with pytest.raises(config.MissingConfigurationError, match="EMAIL_BACKEND"):
+        config.get_settings()
+
+
+def test_production_accepts_smtp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("BASE_URL", "https://questly.example.com")
+    _smtp_environment(monkeypatch)
+
+    settings = config.get_settings()
+
+    assert (settings.app_env, settings.email_backend) == ("production", "smtp")
+
+
+def test_secrets_never_appear_in_the_settings_repr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _smtp_environment(monkeypatch)
+    monkeypatch.setenv("RESEND_API_KEY", "re_the-api-key")
+
+    shown = repr(config.get_settings())
+
+    assert "s3cret-smtp-password" not in shown
+    assert "re_the-api-key" not in shown
+    assert "smtp.example.com" in shown
