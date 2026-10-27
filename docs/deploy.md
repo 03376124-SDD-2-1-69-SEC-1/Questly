@@ -178,7 +178,15 @@ stops or restarts, so restart outside busy publishing times.
 
 `--proxy-headers --forwarded-allow-ips 127.0.0.1` makes uvicorn take the client
 address from `X-Forwarded-For` only when the request comes from `cloudflared`
-on the same machine. The rate limits count per that address.
+on the same machine. The per-address rate limits count per that address.
+
+**Two layers of rate limits.** A KMITL lab reaches the internet through one
+campus NAT address, so a whole class logging in or signing up together looks
+like one client. The per-address limits are therefore only a loose flood guard:
+100 logins per 5 minutes, 60 sign-ups per hour and 30 verification resends per
+15 minutes. Password guessing and mail floods are stopped per account instead:
+10 logins per 15 minutes and 3 resends per 15 minutes for one email address.
+Sign-up has no per-account limit.
 
 ## 6. Cloudflare Tunnel
 
@@ -242,9 +250,9 @@ Do every item before anyone outside the team gets the URL.
       `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
       `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy` and
       `Strict-Transport-Security`.
-- [ ] 11 quick logins with a wrong password from one IP: the 11th gets 429.
-- [ ] A request from a second network (phone on mobile data) is not limited while the first IP is. If both share one bucket, uvicorn is not honouring the forwarded client address and one person can lock everyone out; recheck `--proxy-headers` and `--forwarded-allow-ips`.
-- [ ] Know the limits are per public IP: students on one campus NAT share the buckets (login 10 per 5 min, sign-up 5 per hour), so a whole lab signing up at once can see 429.
+- [ ] 11 wrong-password logins to one account give 429 on the 11th.
+- [ ] A request from a second network (phone on mobile data) to a different account is not limited while the first account is. If uvicorn is not honouring the forwarded client address, every visitor shares one per-address bucket and the whole site gets 100 logins per 5 minutes; recheck `--proxy-headers` and `--forwarded-allow-ips`.
+- [ ] Know the two layers: a loose per-address flood guard (100 logins per 5 min, 60 sign-ups per hour, 30 resends per 15 min), because a lab shares one campus NAT address, and per-account limits (10 logins per 15 min and 3 resends per 15 min per email).
 - [ ] A Student who is not a Member gets 404 on another Classroom's
       Assignment URL, and a non-Admin gets 403 on `/admin`.
 - [ ] An Assignment titled `<img src=x onerror=alert(1)>` renders as text.

@@ -235,8 +235,10 @@ To run Questly on a server, follow [docs/deploy.md](docs/deploy.md). It ends
 with a checklist to finish before anyone outside the team gets the URL. The
 served app (`questly.main:app`) has these protections:
 
-- **Rate limits.** Each client address may post 10 logins in 5 minutes, 5
-  sign-ups in an hour and 5 verification resends in 15 minutes, counting the
+- **Rate limits.** A lab shares one campus NAT address, so each client
+  address only has a loose flood guard: 100 logins in 5 minutes, 60 sign-ups
+  in an hour and 30 verification resends in 15 minutes. Each account (email)
+  may also post 10 logins and 3 resends in 15 minutes. Every limit counts the
   page and the `/api/v1/auth/` endpoint together. Past the limit a page gets
   G-05 with status 429 and the API gets 429 `rate_limited`, both with
   `Retry-After`. The counts live in process memory and reset on restart. Behind
