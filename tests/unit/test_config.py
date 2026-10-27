@@ -16,6 +16,7 @@ EMAIL_VARIABLES = (
     "SMTP_SECURITY",
     "RESEND_API_KEY",
     "APP_ENV",
+    "ONSCREEN_VERIFY_DOMAINS",
 )
 
 
@@ -342,3 +343,31 @@ def test_secrets_never_appear_in_the_settings_repr(
     assert "s3cret-smtp-password" not in shown
     assert "re_the-api-key" not in shown
     assert "smtp.example.com" in shown
+
+
+def test_onscreen_verify_domains_are_empty_by_default() -> None:
+    assert config.get_settings().onscreen_verify_domains == ()
+
+
+def test_onscreen_verify_domains_are_trimmed_lowered_and_stripped_of_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONSCREEN_VERIFY_DOMAINS", " KMITL.ac.th, ,@Example.org ,")
+
+    assert config.get_settings().onscreen_verify_domains == (
+        "kmitl.ac.th",
+        "example.org",
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["localhost", "kmitl ac.th", "a@kmitl.ac.th", "kmitl.ac.th/x", "kmitl..ac.th"],
+)
+def test_an_onscreen_verify_entry_that_is_not_a_domain_stops_the_app(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("ONSCREEN_VERIFY_DOMAINS", f"example.org,{raw}")
+
+    with pytest.raises(config.MissingConfigurationError, match="ONSCREEN_VERIFY"):
+        config.get_settings()

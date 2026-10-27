@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_components/forms.html" import csrf_field, field, select_field, checkbox, button with context %}
+{% from "_components/forms.html" import csrf_field, field, select_field, checkbox, radio_seg, button with context %}
 {% from "_components/ui.html" import alert %}
 {% from "_components/auth.html" import logo, brand_panel %}
 {% from "_components/icons.html" import icon %}
@@ -7,6 +7,8 @@
 {% block main %}
 {% set email_error = {
   "not_kmitl_email": "Use your @kmitl.ac.th address to sign up.",
+  "use_kmitl_option": "อีเมล @kmitl.ac.th ให้เลือก 'บุคคลใน KMITL'",
+  "invalid_email": "อีเมลไม่ถูกต้อง",
   "already_registered": "This email is already registered.",
 }.get(error, "") %}
 <main class="auth-page" data-page="G-03">
@@ -15,28 +17,33 @@
     <div class="mobile-logo">{{ logo() }}</div>
     <h1>สร้างบัญชี Questly</h1>
     <p class="auth-lead">เริ่มต้นเส้นทางการเขียนโปรแกรมของคุณ</p>
-    {% if error in ("password_too_short", "password_mismatch", "faculty_required", "full_name_required") %}
+    {% if error in ("password_too_short", "password_mismatch", "faculty_required", "full_name_required", "external_cannot_request_instructor") %}
       {% call alert(tone="danger") %}
         {{ icon("x", 18) }}{{ {
           "password_too_short": "Password must be at least 8 characters.",
           "password_mismatch": "Passwords do not match.",
           "faculty_required": "Choose your faculty to request instructor rights.",
           "full_name_required": "Full name is required.",
+          "external_cannot_request_instructor": "บุคคลภายนอกขอสิทธิ์อาจารย์ไม่ได้ เลือก 'บุคคลใน KMITL' หรือเอาเครื่องหมายที่ช่องอาจารย์ออก",
         }[error] }}
       {% endcall %}
     {% endif %}
     <form method="post" action="/signup" class="flex flex-col gap-4">
       {{ csrf_field() }}
       {{ field("full_name", "ชื่อ–นามสกุล", value=form.full_name, placeholder="เช่น สมชาย ใจดี", required=true, autocomplete="name") }}
+      {{ radio_seg("affiliation", "สมัครในฐานะ", [("kmitl", "บุคคลใน KMITL"), ("external", "บุคคลภายนอก")], form.affiliation) }}
       <div{% if error == "not_kmitl_email" %} data-state="G-03a"{% elif error == "already_registered" %} data-state="G-03b"{% endif %}>
-        {{ field("email", "อีเมลสถาบัน", type="email", value=form.email, placeholder="name@kmitl.ac.th", hint="" if email_error else "Only @kmitl.ac.th addresses are allowed.", error=email_error, required=true, autocomplete="email") }}
+        {{ field("email", "อีเมล", type="email", value=form.email, placeholder="name@example.com", hint="" if email_error else "บุคคลใน KMITL ใช้อีเมล @kmitl.ac.th", error=email_error, required=true, autocomplete="email") }}
         {% if error == "already_registered" %}<p class="mt-1 text-xs"><a class="link" href="/login">Log in instead</a></p>{% endif %}
       </div>
       <div class="two-col">
         {{ field("password", "รหัสผ่าน", type="password", minlength=8, required=true, autocomplete="new-password", placeholder="อย่างน้อย 8 ตัวอักษร") }}
         {{ field("confirm_password", "ยืนยันรหัสผ่าน", type="password", minlength=8, required=true, autocomplete="new-password") }}
       </div>
-      {{ checkbox("wants_instructor", "I am an instructor", checked=form.wants_instructor == "on", note="(needs admin approval)") }}
+      <div>
+        {{ checkbox("wants_instructor", "I am an instructor", checked=form.wants_instructor == "on", note="(needs admin approval)") }}
+        <small class="hint">บุคคลภายนอกขอสิทธิ์อาจารย์ไม่ได้</small>
+      </div>
       {{ select_field("faculty", "Faculty (instructors only)", faculties, selected=form.faculty, blank="—") }}
       {{ button("สร้างบัญชี", variant="primary", block=true) }}
     </form>

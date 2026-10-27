@@ -4,8 +4,9 @@ import hashlib
 import hmac
 import logging
 import secrets
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
+from enum import StrEnum
 
 from questly.core.auth.models import (
     Actor,
@@ -27,6 +28,7 @@ from questly.core.notifications.service import NotificationService
 logger = logging.getLogger(__name__)
 
 KMITL_DOMAIN = "@kmitl.ac.th"
+MAX_EMAIL_LENGTH = 254
 MIN_PASSWORD_LENGTH = 8
 VERIFICATION_TTL = timedelta(hours=24)
 SESSION_TTL = timedelta(days=14)
@@ -39,6 +41,18 @@ _SCRYPT_P = 1
 
 class NotKmitlEmailError(Exception):
     """G-03a: only @kmitl.ac.th addresses may sign up."""
+
+
+class UseKmitlOptionError(Exception):
+    """An external sign-up with an @kmitl.ac.th address (ADR-0013)."""
+
+
+class InvalidEmailError(Exception):
+    """An external sign-up whose address is not a plausible email."""
+
+
+class ExternalCannotRequestInstructorError(Exception):
+    """Only @kmitl.ac.th accounts may ask for Instructor rights (ADR-0013)."""
 
 
 class EmailAlreadyRegisteredError(Exception):
@@ -93,6 +107,25 @@ class VerificationEmailNotSentError(Exception):
         self.user = user
 
 
+class LinkDisplay(StrEnum):
+    """How G-04a shows a kept verification link, if at all."""
+
+    HIDDEN = "hidden"
+    # the stub sender outside production mails nothing (OPS-37)
+    DEMO = "demo"
+    # the domain's mail system filters our mail (ADR-0013)
+    ONSCREEN = "onscreen"
+
+
+@dataclass(frozen=True, slots=True)
+class ShownLink:
+    display: LinkDisplay
+    url: str = ""
+
+
+NO_LINK = ShownLink(LinkDisplay.HIDDEN)
+
+
 class AuthService:
     """Sign-up, verification, login and session resolution."""
 
@@ -103,13 +136,17 @@ class AuthService:
         clock: Clock,
         *,
         base_url: str,
-        show_verification_link: bool = False,
+        show_demo_link: bool = False,
+        onscreen_verify_domains: tuple[str, ...] = (),
     ) -> None:
         self._repository = repository
         self._notification_service = notification_service
         self._clock = clock
         self._base_url = base_url.rstrip("/")
-        self._show_verification_link = show_verification_link
+        self._show_demo_link = show_demo_link
+        self._onscreen_domains = frozenset(
+            domain.lower() for domain in onscreen_verify_domains
+        )
         self._latest_links: dict[str, str] = {}
 
     def sign_up(
@@ -121,13 +158,26 @@ class AuthService:
         confirm_password: str,
         wants_instructor: bool,
         faculty: str,
+        external: bool = False,
     ) -> User:
+        """Create a Student account and send its verification link.
+
+        `external` is the "บุคคลภายนอก" choice on G-03: any valid address
+        outside @kmitl.ac.th, Student only (ADR-0013).
+        """
         email = _normalize_email(email)
         full_name = full_name.strip()
         faculty = faculty.strip()
         if not full_name:
             raise ValueError("full name must not be blank")
-        if not email.endswith(KMITL_DOMAIN):
+        if external:
+            if _is_kmitl(email):
+                raise UseKmitlOptionError
+            if not _is_valid_email(email):
+                raise InvalidEmailError
+            if wants_instructor:
+                raise ExternalCannotRequestInstructorError
+        elif not _is_kmitl(email):
             raise NotKmitlEmailError
         if len(password) < MIN_PASSWORD_LENGTH:
             raise PasswordTooShortError
@@ -170,14 +220,18 @@ class AuthService:
             return
         self._send_verification(user)
 
-    def demo_link_for(self, email: str) -> str:
-        """The latest verification link sent to `email`, or "" when none is kept.
+    def shown_link_for(self, email: str) -> ShownLink:
+        """The latest verification link of `email` and how G-04a shows it.
 
-        Links are kept in memory only when the composition root turned on
-        `show_verification_link`, which it does for the stub sender outside
-        production, so a developer can follow the link without a mailbox.
+        Links are kept in memory only for an email in an on-screen domain, or
+        for every email when the composition root turned on `show_demo_link`
+        (the stub sender outside production).
         """
-        return self._latest_links.get(_normalize_email(email), "")
+        email = _normalize_email(email)
+        if email not in self._latest_links:
+            return NO_LINK
+        display = LinkDisplay.ONSCREEN if self._is_onscreen(email) else LinkDisplay.DEMO
+        return ShownLink(display, self._latest_links[email])
 
     def log_in(self, *, email: str, password: str) -> LoginResult:
         user = self._repository.find_user_by_email(_normalize_email(email))
@@ -241,6 +295,8 @@ class AuthService:
         faculty = faculty.strip()
         if actor.role is not Role.STUDENT:
             raise PermissionDeniedError
+        if not _is_kmitl(actor.email):
+            raise ExternalCannotRequestInstructorError
         if not faculty:
             raise FacultyRequiredError
         if self._repository.find_pending_instructor_request(actor.user_id) is not None:
@@ -279,7 +335,7 @@ class AuthService:
                 expires_at=self._clock.now() + VERIFICATION_TTL,
             )
         )
-        if self._show_verification_link:
+        if self._show_demo_link or self._is_onscreen(user.email):
             self._latest_links[user.email] = verify_path
         try:
             self._notification_service.send_email(
@@ -296,6 +352,9 @@ class AuthService:
                 "verification email for user %s was not sent: %s", user.id, exc
             )
             raise VerificationEmailNotSentError(user) from exc
+
+    def _is_onscreen(self, email: str) -> bool:
+        return email.rpartition("@")[2] in self._onscreen_domains
 
     def _live_session(self, token: str) -> Session:
         session = self._repository.find_session(_digest(token))
@@ -343,3 +402,18 @@ def _digest(token: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _is_kmitl(email: str) -> bool:
+    """Exactly @kmitl.ac.th; a subdomain such as @mail.kmitl.ac.th is not."""
+    return email.endswith(KMITL_DOMAIN)
+
+
+def _is_valid_email(email: str) -> bool:
+    """One @, a local part, a dotted domain with no empty label, no whitespace."""
+    if len(email) > MAX_EMAIL_LENGTH or any(c.isspace() for c in email):
+        return False
+    local, at, domain = email.partition("@")
+    if not at or not local or "@" in domain or "." not in domain:
+        return False
+    return all(domain.split("."))

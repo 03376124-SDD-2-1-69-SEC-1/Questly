@@ -371,10 +371,11 @@ def create_app(
         clock,
         base_url=use_settings().base_url,
         # The stub sends nothing, so development shows the link on G-04a.
-        show_verification_link=(
+        show_demo_link=(
             isinstance(email_sender, StubEmailSender)
             and use_settings().app_env != PRODUCTION
         ),
+        onscreen_verify_domains=use_settings().onscreen_verify_domains,
     )
     application.state.auth_service = auth_service
     admin_service = AdminService(

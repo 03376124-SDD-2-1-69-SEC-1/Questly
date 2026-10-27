@@ -10,6 +10,8 @@ class SignUpRequest(BaseModel):
     confirm_password: str = Field(max_length=256)
     wants_instructor: bool = False
     faculty: str = Field(default="", max_length=120)
+    # ADR-0013: an address outside @kmitl.ac.th, Student only
+    external: bool = False
 
     @field_validator("full_name")
     @classmethod

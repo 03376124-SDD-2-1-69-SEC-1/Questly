@@ -16,14 +16,18 @@ from questly.core.auth.current import SESSION_COOKIE, auth_service, current_acto
 from questly.core.auth.models import Landing, NotAuthenticatedError
 from questly.core.auth.routes import set_session_cookie
 from questly.core.auth.service import (
+    NO_LINK,
     AccountDeactivatedError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
+    ExternalCannotRequestInstructorError,
     FacultyRequiredError,
     InvalidCredentialsError,
+    InvalidEmailError,
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    UseKmitlOptionError,
     VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
@@ -35,6 +39,10 @@ LANDING_URLS = {
     Landing.CLASSROOMS: "/classes",
     Landing.ADMIN_SETTINGS: "/admin/settings",
 }
+
+# G-03 "สมัครในฐานะ" radio values (ADR-0013)
+KMITL = "kmitl"
+EXTERNAL = "external"
 
 FACULTIES = (
     "Engineering",
@@ -180,9 +188,9 @@ def _verify_page(
     delivery_failed: bool = False,
     status_code: int = 200,
 ) -> HTMLResponse:
-    demo_link = ""
+    link = NO_LINK
     if state == "waiting" and email:
-        demo_link = auth_service(request).demo_link_for(email)
+        link = auth_service(request).shown_link_for(email)
     return _anonymous(
         request,
         _templates(request).TemplateResponse(
@@ -192,7 +200,7 @@ def _verify_page(
                 "state": state,
                 "email": email,
                 "delivery_failed": delivery_failed,
-                "demo_link": demo_link,
+                "link": link,
             },
             status_code=status_code,
         ),
@@ -262,7 +270,7 @@ def logout_submit(
 @router.get("/signup", response_class=HTMLResponse)
 def signup_page(request: Request) -> HTMLResponse:
     """G-03."""
-    return _signup_page(request, form={})
+    return _signup_page(request, form={"affiliation": KMITL})
 
 
 @router.post("/signup", response_class=HTMLResponse)
@@ -274,15 +282,18 @@ def signup_submit(
     confirm_password: Annotated[str, Form()],
     wants_instructor: Annotated[str, Form()] = "",
     faculty: Annotated[str, Form()] = "",
+    affiliation: Annotated[str, Form()] = KMITL,
     csrf_token: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
     """G-03 submit: 03a not a KMITL email, 03b already registered; success → G-04a."""
     require_csrf(request, csrf_token)
+    external = affiliation == EXTERNAL
     form = {
         "full_name": full_name,
         "email": email,
         "wants_instructor": wants_instructor,
         "faculty": faculty,
+        "affiliation": EXTERNAL if external else KMITL,
     }
     error = ""
     delivery_failed = False
@@ -294,6 +305,7 @@ def signup_submit(
             confirm_password=confirm_password,
             wants_instructor=wants_instructor == "on",
             faculty=faculty,
+            external=external,
         )
     except VerificationEmailNotSentError as not_sent:
         # the account and its token exist; G-04a offers the resend button
@@ -301,6 +313,12 @@ def signup_submit(
         delivery_failed = True
     except NotKmitlEmailError:
         error = "not_kmitl_email"
+    except UseKmitlOptionError:
+        error = "use_kmitl_option"
+    except InvalidEmailError:
+        error = "invalid_email"
+    except ExternalCannotRequestInstructorError:
+        error = "external_cannot_request_instructor"
     except EmailAlreadyRegisteredError:
         error = "already_registered"
     except PasswordTooShortError:

@@ -9,6 +9,7 @@ called, not when this module is imported.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from urllib.parse import urlsplit
@@ -25,6 +26,8 @@ PRODUCTION = "production"
 EMAIL_BACKENDS = ("stub", "smtp", "resend")
 SMTP_SECURITIES = ("ssl", "starttls")
 DEFAULT_SMTP_PORTS = {"ssl": 465, "starttls": 587}
+
+_DOMAIN = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
 class MissingConfigurationError(RuntimeError):
@@ -83,6 +86,9 @@ class Settings:
     smtp_password: str = field(default="", repr=False)
     smtp_security: str = "starttls"
     resend_api_key: str = field(default="", repr=False)
+    # Email domains whose G-04a shows the verification link (ADR-0013),
+    # lower-case, without "@".
+    onscreen_verify_domains: tuple[str, ...] = ()
 
 
 def _required(variable: str) -> str:
@@ -269,6 +275,22 @@ def _model_allowlist(generation_model: str) -> tuple[str, ...]:
     return models
 
 
+def _onscreen_verify_domains() -> tuple[str, ...]:
+    """ONSCREEN_VERIFY_DOMAINS, comma-separated, e.g. `kmitl.ac.th`."""
+    domains = []
+    for entry in os.environ.get("ONSCREEN_VERIFY_DOMAINS", "").split(","):
+        domain = entry.strip().lower().removeprefix("@")
+        if not domain:
+            continue
+        if not _DOMAIN.fullmatch(domain):
+            raise MissingConfigurationError(
+                "ONSCREEN_VERIFY_DOMAINS must list domains such as kmitl.ac.th, "
+                f"got {entry.strip()!r}."
+            )
+        domains.append(domain)
+    return tuple(domains)
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Read the environment once and return the resolved configuration."""
@@ -305,4 +327,5 @@ def get_settings() -> Settings:
         smtp_password=email.smtp_password,
         smtp_security=email.smtp_security,
         resend_api_key=email.resend_api_key,
+        onscreen_verify_domains=_onscreen_verify_domains(),
     )

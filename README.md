@@ -197,6 +197,38 @@ missing variable. Messages are plain text in UTF-8, each send times out after
   created. G-04 says the email could not be sent and offers "ส่งอีเมลอีกครั้ง",
   and `POST /api/v1/auth/verify/resend` answers 503 `email_delivery_failed`.
 
+#### Sign-up
+
+G-03 asks who is signing up (ADR-0013):
+
+| Choice | Email it accepts | Account |
+| --- | --- | --- |
+| บุคคลใน KMITL (default) | An address ending in `@kmitl.ac.th`. | Student. May tick "I am an instructor" to ask an Admin for Instructor rights. |
+| บุคคลภายนอก | Any valid address that does not end in `@kmitl.ac.th`. | Student only. It cannot ask for Instructor rights. |
+
+The API takes the same choice as `"external": true` on
+`POST /api/v1/auth/signup`. Nothing new is stored: the email domain says which
+kind an account is.
+
+KMITL's mail system filters the mail Questly sends, so a KMITL Student may never
+see the verification email. `ONSCREEN_VERIFY_DOMAINS` lists the email domains
+whose G-04 page shows the verification link as a "ยืนยันอีเมล" button:
+
+```bash
+ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th
+```
+
+The list is comma-separated and case-insensitive, and it is empty by default. An
+entry that is not a domain stops the app at startup. A listed domain gets the
+button in every `APP_ENV`, production included. The email is still sent, and
+the button shows even when the send fails. The link never appears in an API
+response.
+
+**Security.** The button does not prove that the person owns the mailbox. Anyone
+who knows a `@kmitl.ac.th` address can create and verify a Student account with
+it. Instructor rights still need an Admin's approval. Remove the domain from
+`ONSCREEN_VERIFY_DOMAINS` once KMITL delivers our mail.
+
 ### 5. Apply Database Migrations
 
 ```bash

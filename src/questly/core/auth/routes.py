@@ -21,12 +21,15 @@ from questly.core.auth.service import (
     AccountDeactivatedError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
+    ExternalCannotRequestInstructorError,
     FacultyRequiredError,
     InstructorRequestExistsError,
     InvalidCredentialsError,
+    InvalidEmailError,
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    UseKmitlOptionError,
     VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
@@ -86,9 +89,20 @@ def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
             confirm_password=payload.confirm_password,
             wants_instructor=payload.wants_instructor,
             faculty=payload.faculty,
+            external=payload.external,
         )
     except NotKmitlEmailError:
         _fail(422, "not_kmitl_email", "Use your @kmitl.ac.th address to sign up")
+    except UseKmitlOptionError:
+        _fail(422, "use_kmitl_option", "Sign up an @kmitl.ac.th address as KMITL")
+    except InvalidEmailError:
+        _fail(422, "invalid_email", "Enter a valid email address")
+    except ExternalCannotRequestInstructorError:
+        _fail(
+            422,
+            "external_cannot_request_instructor",
+            "Only @kmitl.ac.th accounts can request instructor rights",
+        )
     except PasswordTooShortError:
         _fail(422, "password_too_short", "Password must be at least 8 characters")
     except PasswordMismatchError:
@@ -174,6 +188,12 @@ def request_instructor(
     try:
         created = auth_service(request).request_instructor(
             actor, faculty=payload.faculty
+        )
+    except ExternalCannotRequestInstructorError:
+        _fail(
+            422,
+            "external_cannot_request_instructor",
+            "Only @kmitl.ac.th accounts can request instructor rights",
         )
     except FacultyRequiredError:
         _fail(422, "faculty_required", "Faculty is required")
