@@ -19,7 +19,7 @@ from questly.core.assignments.ports import (
     VersionRepository,
 )
 from questly.core.auth.pages import DemoAccount
-from questly.core.auth.ports import AuthRepository, Clock
+from questly.core.auth.ports import AuthRepository, Clock, RateLimiter
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.documents.ports import (
     DocumentIngestor,
@@ -77,6 +77,13 @@ def fake_settings(
     )
 
 
+class NoRateLimit:
+    """A RateLimiter that never refuses, so a test can log in as often as it likes."""
+
+    def hit(self, bucket: str, key: str) -> None:
+        return None
+
+
 def build_app(
     *,
     settings: Settings | None = None,
@@ -106,6 +113,7 @@ def build_app(
     code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     max_upload_size_bytes: int = DEFAULT_MAX_UPLOAD_SIZE_BYTES,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Return an app whose every port is backed by a fake."""
     if topic_repository is None:
@@ -150,6 +158,8 @@ def build_app(
         classroom_repository = FakeClassroomRepository()
     if classroom_stats is None:
         classroom_stats = FakeClassroomStats()
+    if rate_limiter is None:
+        rate_limiter = NoRateLimit()
 
     return create_app(
         settings=settings or fake_settings(max_upload_size_bytes=max_upload_size_bytes),
@@ -181,4 +191,5 @@ def build_app(
         demo_accounts=demo_accounts,
         # httpx talks plain HTTP to the ASGI app and drops Secure cookies.
         secure_cookies=False,
+        rate_limiter=rate_limiter,
     )

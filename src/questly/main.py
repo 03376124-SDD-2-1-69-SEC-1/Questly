@@ -67,9 +67,9 @@ from questly.core.auth.models import (
 )
 from questly.core.auth.pages import DemoAccount, error_page
 from questly.core.auth.pages import router as auth_page_router
-from questly.core.auth.ports import AuthRepository, Clock
+from questly.core.auth.ports import AuthRepository, Clock, RateLimiter
 from questly.core.auth.routes import router as auth_router
-from questly.core.auth.service import AuthService
+from questly.core.auth.service import AuthService, RateLimitBucket
 from questly.core.classrooms.pages import router as classroom_page_router
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.classrooms.routes import router as classroom_router
@@ -147,6 +147,7 @@ from questly.integrations.email import (
 )
 from questly.integrations.generation_jobs import InMemoryGenerationJobStore
 from questly.integrations.judge0 import StubCodeRunner, connect_judge0
+from questly.integrations.rate_limit import RateLimit, SlidingWindowRateLimiter
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PACKAGE_DIR / "web"
@@ -158,6 +159,14 @@ _QUOTA_TIMEOUT_MS = 5_000
 _SWEEP_SECONDS = 15.0
 
 logger = logging.getLogger("questly.main")
+
+# Per client address: slows password guessing and caps the mail one address
+# can make us send (OPS-44).
+AUTH_RATE_LIMITS = {
+    RateLimitBucket.LOGIN: RateLimit(limit=10, window_seconds=5 * 60),
+    RateLimitBucket.SIGNUP: RateLimit(limit=5, window_seconds=60 * 60),
+    RateLimitBucket.RESEND: RateLimit(limit=5, window_seconds=15 * 60),
+}
 
 
 DISPLAY_ZONE = ZoneInfo("Asia/Bangkok")
@@ -243,6 +252,7 @@ def create_app(
     code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     secure_cookies: bool | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Build the application, wiring SQL adapters for anything not supplied."""
     # Resolved lazily and at most once each, so an app built entirely from
@@ -285,6 +295,9 @@ def create_app(
     if secure_cookies is None:
         secure_cookies = True
     application.state.secure_cookies = secure_cookies
+    if rate_limiter is None:
+        rate_limiter = SlidingWindowRateLimiter(AUTH_RATE_LIMITS)
+    application.state.rate_limiter = rate_limiter
 
     if clock is None:
         clock = SystemClock()
@@ -554,14 +567,20 @@ def create_app(
 
     @application.exception_handler(StarletteHTTPException)
     def http_error(request: Request, error: StarletteHTTPException) -> Response:
-        """Browsers get G-05; `/api/`, `/health` and `/static` keep the JSON body."""
+        """Browsers get G-05; `/api/`, `/health` and `/static` keep the JSON body.
+
+        Both keep the error's headers, such as Retry-After on a 429.
+        """
         if request.url.path.startswith(("/api/", "/health", "/static/")):
             return JSONResponse(
                 status_code=error.status_code,
                 content={"detail": error.detail},
                 headers=error.headers,
             )
-        return error_page(request, error.status_code)
+        page = error_page(request, error.status_code)
+        if error.headers is not None:
+            page.headers.update(error.headers)
+        return page
 
     @application.exception_handler(Exception)
     def server_error(request: Request, error: Exception) -> Response:

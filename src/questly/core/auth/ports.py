@@ -84,6 +84,19 @@ class AuthRepository(Protocol):
     ) -> InstructorRequest | None: ...
 
 
+class RateLimiter(Protocol):
+    """Counts auth requests per client so password guessing and mail floods stop."""
+
+    def hit(self, bucket: str, key: str) -> None:
+        """Count one request from `key` against `bucket`.
+
+        Raises RateLimitedError (core/auth/service.py) when `key` has already
+        used every request `bucket` allows in its window; that request is not
+        counted.
+        """
+        ...
+
+
 class Clock(Protocol):
     """The current time, timezone-aware UTC. Injected so expiry is testable."""
 

@@ -107,6 +107,22 @@ class VerificationEmailNotSentError(Exception):
         self.user = user
 
 
+class RateLimitBucket(StrEnum):
+    """The auth requests a RateLimiter counts, each with its own limit (OPS-44)."""
+
+    LOGIN = "login"
+    SIGNUP = "signup"
+    RESEND = "resend"
+
+
+class RateLimitedError(Exception):
+    """A client used up its RateLimiter bucket; it may retry after the delay."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"rate limited, retry after {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
 class LinkDisplay(StrEnum):
     """How G-04a shows a kept verification link, if at all."""
 
