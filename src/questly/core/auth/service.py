@@ -4,8 +4,9 @@ import hashlib
 import hmac
 import logging
 import secrets
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
+from enum import StrEnum
 
 from questly.core.auth.models import (
     Actor,
@@ -106,6 +107,25 @@ class VerificationEmailNotSentError(Exception):
         self.user = user
 
 
+class LinkDisplay(StrEnum):
+    """How G-04a shows a kept verification link, if at all."""
+
+    HIDDEN = "hidden"
+    # the stub sender outside production mails nothing (OPS-37)
+    DEMO = "demo"
+    # the domain's mail system filters our mail (ADR-0013)
+    ONSCREEN = "onscreen"
+
+
+@dataclass(frozen=True, slots=True)
+class ShownLink:
+    display: LinkDisplay
+    url: str = ""
+
+
+NO_LINK = ShownLink(LinkDisplay.HIDDEN)
+
+
 class AuthService:
     """Sign-up, verification, login and session resolution."""
 
@@ -116,13 +136,17 @@ class AuthService:
         clock: Clock,
         *,
         base_url: str,
-        show_verification_link: bool = False,
+        show_demo_link: bool = False,
+        onscreen_verify_domains: tuple[str, ...] = (),
     ) -> None:
         self._repository = repository
         self._notification_service = notification_service
         self._clock = clock
         self._base_url = base_url.rstrip("/")
-        self._show_verification_link = show_verification_link
+        self._show_demo_link = show_demo_link
+        self._onscreen_domains = frozenset(
+            domain.lower() for domain in onscreen_verify_domains
+        )
         self._latest_links: dict[str, str] = {}
 
     def sign_up(
@@ -196,14 +220,18 @@ class AuthService:
             return
         self._send_verification(user)
 
-    def demo_link_for(self, email: str) -> str:
-        """The latest verification link sent to `email`, or "" when none is kept.
+    def shown_link_for(self, email: str) -> ShownLink:
+        """The latest verification link of `email` and how G-04a shows it.
 
-        Links are kept in memory only when the composition root turned on
-        `show_verification_link`, which it does for the stub sender outside
-        production, so a developer can follow the link without a mailbox.
+        Links are kept in memory only for an email in an on-screen domain, or
+        for every email when the composition root turned on `show_demo_link`
+        (the stub sender outside production).
         """
-        return self._latest_links.get(_normalize_email(email), "")
+        email = _normalize_email(email)
+        if email not in self._latest_links:
+            return NO_LINK
+        display = LinkDisplay.ONSCREEN if self._is_onscreen(email) else LinkDisplay.DEMO
+        return ShownLink(display, self._latest_links[email])
 
     def log_in(self, *, email: str, password: str) -> LoginResult:
         user = self._repository.find_user_by_email(_normalize_email(email))
@@ -307,7 +335,7 @@ class AuthService:
                 expires_at=self._clock.now() + VERIFICATION_TTL,
             )
         )
-        if self._show_verification_link:
+        if self._show_demo_link or self._is_onscreen(user.email):
             self._latest_links[user.email] = verify_path
         try:
             self._notification_service.send_email(
@@ -324,6 +352,9 @@ class AuthService:
                 "verification email for user %s was not sent: %s", user.id, exc
             )
             raise VerificationEmailNotSentError(user) from exc
+
+    def _is_onscreen(self, email: str) -> bool:
+        return email.rpartition("@")[2] in self._onscreen_domains
 
     def _live_session(self, token: str) -> Session:
         session = self._repository.find_session(_digest(token))

@@ -13,14 +13,23 @@
     <div class="flex flex-col items-center gap-3" data-state="G-04a">
       <span class="icon-well icon-well-lg">{{ icon("send", 32) }}</span>
       <h1>ยืนยันอีเมลของคุณ</h1>
-      {% if delivery_failed %}
-      {% call alert(tone="warn", state="delivery-failed") %}<span>ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %}<br>บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่</span>{% endcall %}
-      {% else %}
+      {% set on_screen = link.display == "onscreen" %}
+      {% if not delivery_failed %}
       <p class="text-mid">เราได้ส่งลิงก์ยืนยัน{% if email %}ไปที่<br><strong class="text-ink">{{ email }}</strong>{% endif %}</p>
+      {% elif on_screen %}
+      <p class="text-mid"><strong class="text-ink">{{ email }}</strong></p>
+      {% else %}
+      {% call alert(tone="warn", state="delivery-failed") %}<span>ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %}<br>บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่</span>{% endcall %}
+      {% endif %}
+      {% if on_screen %}
+      <div class="flex w-full flex-col gap-3 text-center" data-state="G-04a-onscreen">
+        <p class="text-ui text-mid">ระบบอีเมลของมหาวิทยาลัยกรองอีเมลจากเรา กดปุ่มนี้เพื่อยืนยันได้เลย</p>
+        {{ link_button(link.url, "ยืนยันอีเมล", variant="primary", block=true) }}
+      </div>
       {% endif %}
       <div class="notice w-full">{{ icon("clock") }}<span>กำลังรอการยืนยันอีเมล<br><small>Links are valid for 24 hours.</small></span></div>
-      {% if demo_link %}
-      <div class="notice w-full" data-state="demo-link">{{ icon("send") }}<span>Email is not sent in this mode.<br><small><a class="link" data-demo-link href="{{ demo_link }}">Open the verification link</a></small></span></div>
+      {% if link.display == "demo" %}
+      <div class="notice w-full" data-state="demo-link">{{ icon("send") }}<span>Email is not sent in this mode.<br><small><a class="link" data-demo-link href="{{ link.url }}">Open the verification link</a></small></span></div>
       {% endif %}
     </div>
     {% elif state == "verified" %}

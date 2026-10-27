@@ -16,6 +16,7 @@ from questly.core.auth.current import SESSION_COOKIE, auth_service, current_acto
 from questly.core.auth.models import Landing, NotAuthenticatedError
 from questly.core.auth.routes import set_session_cookie
 from questly.core.auth.service import (
+    NO_LINK,
     AccountDeactivatedError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
@@ -187,9 +188,9 @@ def _verify_page(
     delivery_failed: bool = False,
     status_code: int = 200,
 ) -> HTMLResponse:
-    demo_link = ""
+    link = NO_LINK
     if state == "waiting" and email:
-        demo_link = auth_service(request).demo_link_for(email)
+        link = auth_service(request).shown_link_for(email)
     return _anonymous(
         request,
         _templates(request).TemplateResponse(
@@ -199,7 +200,7 @@ def _verify_page(
                 "state": state,
                 "email": email,
                 "delivery_failed": delivery_failed,
-                "demo_link": demo_link,
+                "link": link,
             },
             status_code=status_code,
         ),
