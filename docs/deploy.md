@@ -188,6 +188,13 @@ like one client. The per-address limits are therefore only a loose flood guard:
 10 logins per 15 minutes and 3 resends per 15 minutes for one email address.
 Sign-up has no per-account limit.
 
+The trade-off: anyone who knows an email address can lock that account out of
+login for up to 15 minutes by posting 10 wrong passwords from any address, and
+can use up its 3 resends the same way. Every attempt counts, including
+successful logins. We accept this to stop password guessing without punishing a
+shared NAT address. If a Student reports being locked out, look for repeated
+429s in `journalctl -u questly`.
+
 ## 6. Cloudflare Tunnel
 
 The zone `comtech.fun` is already on Cloudflare.
