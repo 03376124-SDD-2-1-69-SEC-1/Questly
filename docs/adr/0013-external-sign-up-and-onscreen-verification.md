@@ -89,6 +89,12 @@ shows a link for any unverified account in a listed domain, so it tells a
 visitor whether such an account exists and lets them verify it; they still
 cannot log in without its password.
 
+Two further effects follow. An attacker can sign up as `victim@kmitl.ac.th`
+with their own password, and the real owner then meets `already_registered`;
+there is no password reset to take the address back. An Instructor request
+from a listed domain no longer shows that the requester owns the KMITL address,
+so an Admin approving one must not treat the email as proof of identity.
+
 The damage is bounded. The account is a Student, and a Student sees only the
 Classrooms it joins with a join code. Instructor rights still need an Admin
 to approve the request (ADR-0007 §1.2), and an Admin can deactivate an
