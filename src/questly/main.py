@@ -695,7 +695,9 @@ def create_app(
         try:
             return check_db(session)
         except Exception as exc:  # noqa: BLE001 — surface as a 503, not a 500
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            # The error can name the host or the user; it goes to the log only.
+            logger.exception("database health check failed")
+            raise HTTPException(status_code=503, detail="database unavailable") from exc
 
     @application.get("/health/r2")
     def health_r2() -> dict:
@@ -706,7 +708,8 @@ def create_app(
                 build_r2_client(bucket_settings), bucket_settings.r2_bucket_name
             )
         except Exception as exc:  # noqa: BLE001 — surface as a 503, not a 500
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            logger.exception("storage health check failed")
+            raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
     return application
 
