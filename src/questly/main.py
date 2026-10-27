@@ -25,7 +25,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from openrouter import OpenRouter
 from sqlmodel import Session
+from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from questly.ai.app.repository import VectorRepository
 from questly.ai.app.service import VectorService
@@ -67,9 +69,9 @@ from questly.core.auth.models import (
 )
 from questly.core.auth.pages import DemoAccount, error_page
 from questly.core.auth.pages import router as auth_page_router
-from questly.core.auth.ports import AuthRepository, Clock
+from questly.core.auth.ports import AuthRepository, Clock, RateLimiter
 from questly.core.auth.routes import router as auth_router
-from questly.core.auth.service import AuthService
+from questly.core.auth.service import AuthService, RateLimitBucket
 from questly.core.classrooms.pages import router as classroom_page_router
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.classrooms.routes import router as classroom_router
@@ -141,12 +143,14 @@ from questly.database.session import (
 from questly.database.storage.r2 import R2ObjectStorage, build_r2_client, check_r2
 from questly.integrations.clock import SystemClock
 from questly.integrations.email import (
+    QueuedEmailSender,
     ResendEmailSender,
     SmtpEmailSender,
     StubEmailSender,
 )
 from questly.integrations.generation_jobs import InMemoryGenerationJobStore
 from questly.integrations.judge0 import StubCodeRunner, connect_judge0
+from questly.integrations.rate_limit import RateLimit, SlidingWindowRateLimiter
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _WEB_DIR = _PACKAGE_DIR / "web"
@@ -158,6 +162,17 @@ _QUOTA_TIMEOUT_MS = 5_000
 _SWEEP_SECONDS = 15.0
 
 logger = logging.getLogger("questly.main")
+
+# A classroom signs in together behind one campus NAT address, so the
+# per-address buckets only stop floods; the per-account buckets slow password
+# guessing and cap the verification mail one inbox can be sent (OPS-44).
+AUTH_RATE_LIMITS = {
+    RateLimitBucket.LOGIN: RateLimit(limit=100, window_seconds=5 * 60),
+    RateLimitBucket.SIGNUP: RateLimit(limit=60, window_seconds=60 * 60),
+    RateLimitBucket.RESEND: RateLimit(limit=30, window_seconds=15 * 60),
+    RateLimitBucket.LOGIN_EMAIL: RateLimit(limit=10, window_seconds=15 * 60),
+    RateLimitBucket.RESEND_EMAIL: RateLimit(limit=3, window_seconds=15 * 60),
+}
 
 
 DISPLAY_ZONE = ZoneInfo("Asia/Bangkok")
@@ -183,6 +198,79 @@ def asset_url(path: str) -> str:
     """
     version = int((_STATIC_DIR / path).stat().st_mtime)
     return f"/static/{path}?v={version}"
+
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+# Pages run no JavaScript (AGENTS.md), use inline style attributes and load
+# Noto Sans Thai from Google Fonts. A task that adds a script must widen this.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'none'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; "
+    "object-src 'none'"
+)
+STRICT_TRANSPORT_SECURITY = "max-age=31536000"
+# Swagger UI and ReDoc need their scripts, so they go without the CSP.
+_DOCS_PATHS = ("/docs", "/docs/oauth2-redirect", "/redoc")
+
+
+def apply_security_headers(
+    headers: MutableHeaders,
+    *,
+    path: str,
+    strict_transport: bool,
+    paths_without_csp: tuple[str, ...],
+) -> None:
+    """Set SECURITY_HEADERS, HSTS when asked, and the CSP on HTML responses."""
+    headers.update(SECURITY_HEADERS)
+    if strict_transport:
+        headers["Strict-Transport-Security"] = STRICT_TRANSPORT_SECURITY
+    is_html = headers.get("content-type", "").startswith("text/html")
+    if is_html and path not in paths_without_csp:
+        headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+
+
+class SecurityHeadersMiddleware:
+    """Add SECURITY_HEADERS to every response and the CSP to HTML pages.
+
+    Plain ASGI, so it is the one `async` piece of the app: Starlette has no
+    synchronous middleware.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        strict_transport: bool,
+        paths_without_csp: tuple[str, ...],
+    ) -> None:
+        self._app = app
+        self._strict_transport = strict_transport
+        self._paths_without_csp = paths_without_csp
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        path = scope["path"]
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                apply_security_headers(
+                    MutableHeaders(scope=message),
+                    path=path,
+                    strict_transport=self._strict_transport,
+                    paths_without_csp=self._paths_without_csp,
+                )
+            await send(message)
+
+        await self._app(scope, receive, send_with_headers)
 
 
 class Runner(CodeRunner, BatchRunner, Protocol):
@@ -233,6 +321,7 @@ def create_app(
     vector_repository: VectorRepository | None = None,
     auth_repository: AuthRepository | None = None,
     email_sender: EmailSender | None = None,
+    bulk_email_sender: EmailSender | None = None,
     notification_repository: NotificationRepository | None = None,
     admin_repository: AdminRepository | None = None,
     system_health_checker: SystemHealthChecker | None = None,
@@ -243,6 +332,8 @@ def create_app(
     code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     secure_cookies: bool | None = None,
+    rate_limiter: RateLimiter | None = None,
+    expose_docs: bool | None = None,
 ) -> FastAPI:
     """Build the application, wiring SQL adapters for anything not supplied."""
     # Resolved lazily and at most once each, so an app built entirely from
@@ -262,11 +353,17 @@ def create_app(
             resolved_factory.append(build_session_factory(build_engine(use_settings())))
         return resolved_factory[0]
 
+    # /docs, /redoc and /openapi.json are on unless production_app() hides them.
+    if expose_docs is None:
+        expose_docs = True
     application = FastAPI(
         title="Questly",
         description="A modular-monolith service for instructor assignment authoring.",
         version="0.1.0",
         responses={422: {"model": ApplicationErrorResponse}},
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
     )
     application.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
@@ -285,6 +382,15 @@ def create_app(
     if secure_cookies is None:
         secure_cookies = True
     application.state.secure_cookies = secure_cookies
+    # HSTS only where cookies are Secure, i.e. where the app is served on HTTPS.
+    application.add_middleware(
+        SecurityHeadersMiddleware,
+        strict_transport=secure_cookies,
+        paths_without_csp=_DOCS_PATHS if expose_docs else (),
+    )
+    if rate_limiter is None:
+        rate_limiter = SlidingWindowRateLimiter(AUTH_RATE_LIMITS)
+    application.state.rate_limiter = rate_limiter
 
     if clock is None:
         clock = SystemClock()
@@ -331,6 +437,8 @@ def create_app(
         classroom_repository,
         auth_repository,
         base_url=use_settings().base_url,
+        # None sends member emails through email_sender, on the request.
+        bulk_email_sender=bulk_email_sender,
     )
     application.state.notification_service = notification_service
 
@@ -554,26 +662,41 @@ def create_app(
 
     @application.exception_handler(StarletteHTTPException)
     def http_error(request: Request, error: StarletteHTTPException) -> Response:
-        """Browsers get G-05; `/api/`, `/health` and `/static` keep the JSON body."""
+        """Browsers get G-05; `/api/`, `/health` and `/static` keep the JSON body.
+
+        Both keep the error's headers, such as Retry-After on a 429.
+        """
         if request.url.path.startswith(("/api/", "/health", "/static/")):
             return JSONResponse(
                 status_code=error.status_code,
                 content={"detail": error.detail},
                 headers=error.headers,
             )
-        return error_page(request, error.status_code)
+        page = error_page(request, error.status_code)
+        if error.headers is not None:
+            page.headers.update(error.headers)
+        return page
 
     @application.exception_handler(Exception)
     def server_error(request: Request, error: Exception) -> Response:
         """An unhandled bug: a 500 page for browsers, the usual envelope for the API."""
         if request.url.path.startswith(("/api/", "/health")):
-            return JSONResponse(
+            response: Response = JSONResponse(
                 status_code=500,
                 content={
                     "detail": {"code": "internal_error", "message": "Server error"}
                 },
             )
-        return error_page(request, 500)
+        else:
+            response = error_page(request, 500)
+        # Starlette sends this response from outside the user middleware stack.
+        apply_security_headers(
+            response.headers,
+            path=request.url.path,
+            strict_transport=request.app.state.secure_cookies,
+            paths_without_csp=(),
+        )
+        return response
 
     @application.exception_handler(RequestValidationError)
     def request_validation_error(
@@ -603,7 +726,9 @@ def create_app(
         try:
             return check_db(session)
         except Exception as exc:  # noqa: BLE001 — surface as a 503, not a 500
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            # The error can name the host or the user; it goes to the log only.
+            logger.exception("database health check failed")
+            raise HTTPException(status_code=503, detail="database unavailable") from exc
 
     @application.get("/health/r2")
     def health_r2() -> dict:
@@ -614,7 +739,8 @@ def create_app(
                 build_r2_client(bucket_settings), bucket_settings.r2_bucket_name
             )
         except Exception as exc:  # noqa: BLE001 — surface as a 503, not a 500
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            logger.exception("storage health check failed")
+            raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
     return application
 
@@ -647,13 +773,24 @@ def start_sweeper(recover: Callable[[], None]) -> None:
 
 @functools.cache
 def production_app() -> FastAPI:
-    """The served app, its one judging sweeper and its ingestion recovery.
+    """The served app with its judging sweeper, member-email queue and recovery.
 
-    Started here and never in `create_app`, so tests build apps without
-    threads or startup writes; a lifespan hook would need `async def`, which
-    this codebase does not use.
+    The sweeper, the queue and the ingestion recovery start here and never in
+    `create_app`, so tests build apps without threads or startup writes; a
+    lifespan hook would need `async def`, which this codebase does not use.
+    Verification emails stay on the request, so G-04a can say whether one went
+    out.
     """
-    application = create_app()
+    settings = get_settings()
+    email_sender = _build_email_sender(settings)
+    member_emails = QueuedEmailSender(email_sender)
+    application = create_app(
+        settings=settings,
+        expose_docs=settings.app_env != PRODUCTION,
+        email_sender=email_sender,
+        bulk_email_sender=member_emails,
+    )
+    member_emails.start()
     try:
         application.state.fail_stuck_ingestions()
     except Exception:

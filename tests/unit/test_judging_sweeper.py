@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from questly import main
 from questly.main import run_sweeper
-from tests.fakes.app import build_app
+from tests.fakes.app import build_app, fake_settings
 
 
 def test_create_app_starts_no_thread() -> None:
@@ -40,7 +40,8 @@ def production_entry(
 ) -> Iterator[list[Callable[[], None]]]:
     """`questly.main:app` over fakes, recording the sweepers it would start."""
     started: list[Callable[[], None]] = []
-    monkeypatch.setattr(main, "create_app", build_app)
+    monkeypatch.setattr(main, "get_settings", fake_settings)
+    monkeypatch.setattr(main, "create_app", lambda **_: build_app())
     monkeypatch.setattr(main, "start_sweeper", started.append)
     main.production_app.cache_clear()
     yield started

@@ -229,6 +229,43 @@ who knows a `@kmitl.ac.th` address can create and verify a Student account with
 it. Instructor rights still need an Admin's approval. Remove the domain from
 `ONSCREEN_VERIFY_DOMAINS` once KMITL delivers our mail.
 
+#### Security hardening
+
+To run Questly on a server, follow [docs/deploy.md](docs/deploy.md). It ends
+with a checklist to finish before anyone outside the team gets the URL. The
+served app (`questly.main:app`) has these protections:
+
+- **Rate limits.** A lab shares one campus NAT address, so each client
+  address only has a loose flood guard: 100 logins in 5 minutes, 60 sign-ups
+  in an hour and 30 verification resends in 15 minutes. Each account (email)
+  may also post 10 logins and 3 resends in 15 minutes. Every limit counts the
+  page and the `/api/v1/auth/` endpoint together. Past the limit a page gets
+  G-05 with status 429 and the API gets 429 `rate_limited`, both with
+  `Retry-After`. The counts live in process memory and reset on restart. Behind
+  a proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips` set to that
+  proxy only, as `docs/deploy.md` does, or every client shares the proxy's
+  address. The demo and the tests do not rate-limit.
+- **Headers.** Every response carries `X-Content-Type-Options`,
+  `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. HTML
+  pages also carry a `Content-Security-Policy` that allows no JavaScript, styles
+  from the app and Google Fonts, and forms that post only to the app. A task
+  that adds JavaScript or another outside source must update
+  `CONTENT_SECURITY_POLICY` in `src/questly/main.py`. `Strict-Transport-Security`
+  is sent whenever cookies are `Secure`, which is everywhere except the demo and
+  the tests.
+- **API docs.** With `APP_ENV=production`, `/docs`, `/redoc` and
+  `/openapi.json` answer 404.
+- **Health checks.** `/health/db` and `/health/r2` answer 503 with
+  `database unavailable` or `storage unavailable`. The cause goes to the log.
+- **Member emails are queued.** Emails to Members about a published or updated
+  problem go through a queue that one background thread sends, so a publish
+  does not wait for the mail provider. Emails still in the queue are lost when
+  the process stops or restarts. Verification emails are still sent during the
+  request. The demo and the tests send everything during the request.
+- **One worker.** Rate-limit counts, the email queue, generation progress and
+  on-screen verification links live in process memory. Run exactly one uvicorn
+  worker.
+
 ### 5. Apply Database Migrations
 
 ```bash

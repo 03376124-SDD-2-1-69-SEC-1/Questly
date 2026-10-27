@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from questly.core.auth.csrf import require_csrf, set_anonymous_csrf_cookie
 from questly.core.auth.current import SESSION_COOKIE, auth_service, current_actor
 from questly.core.auth.models import Landing, NotAuthenticatedError
-from questly.core.auth.routes import set_session_cookie
+from questly.core.auth.routes import enforce_rate_limit, set_session_cookie
 from questly.core.auth.service import (
     NO_LINK,
     AccountDeactivatedError,
@@ -27,6 +27,7 @@ from questly.core.auth.service import (
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    RateLimitBucket,
     UseKmitlOptionError,
     VerificationEmailNotSentError,
     VerificationLinkExpiredError,
@@ -237,6 +238,7 @@ def login_submit(
 ) -> Response:
     """G-01 submit: 01a wrong password, 01b email not verified."""
     require_csrf(request, csrf_token)
+    enforce_rate_limit(request, RateLimitBucket.LOGIN, email=email)
     try:
         result = auth_service(request).log_in(email=email, password=password)
     except InvalidCredentialsError:
@@ -287,6 +289,7 @@ def signup_submit(
 ) -> HTMLResponse:
     """G-03 submit: 03a not a KMITL email, 03b already registered; success → G-04a."""
     require_csrf(request, csrf_token)
+    enforce_rate_limit(request, RateLimitBucket.SIGNUP)
     external = affiliation == EXTERNAL
     form = {
         "full_name": full_name,
@@ -358,6 +361,7 @@ def verify_resend(
 ) -> HTMLResponse:
     """G-01b / G-04c "Send a new link"."""
     require_csrf(request, csrf_token)
+    enforce_rate_limit(request, RateLimitBucket.RESEND, email=email)
     delivery_failed = False
     try:
         auth_service(request).resend_verification(email)

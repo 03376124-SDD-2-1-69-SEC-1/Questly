@@ -205,3 +205,41 @@ def test_notify_members_of_an_empty_classroom_stores_and_sends_nothing(
 
     assert repository.list_for_user(1) == []
     assert mailer.messages == []
+
+
+def test_member_emails_use_the_bulk_sender_and_direct_mail_does_not(
+    repository: FakeNotificationRepository,
+    mailer: StubEmailSender,
+    users: FakeAuthRepository,
+    classrooms: FakeClassroomRepository,
+) -> None:
+    bulk = StubEmailSender()
+    service = NotificationService(
+        repository=repository,
+        email_sender=mailer,
+        clock=FixedClock(),
+        members=classrooms,
+        accounts=users,
+        base_url="https://questly.example.com",
+        bulk_email_sender=bulk,
+    )
+    _member(users, classrooms, 7, "66010001@kmitl.ac.th", "Nattapong")
+
+    service.notify_members(7, NotificationKind.ASSIGNMENT_PUBLISHED, PAYLOAD)
+    service.send_email(to="new@kmitl.ac.th", subject="Verify", body="link")
+
+    assert [m.to for m in bulk.messages] == ["66010001@kmitl.ac.th"]
+    assert [m.to for m in mailer.messages] == ["new@kmitl.ac.th"]
+
+
+def test_without_a_bulk_sender_member_emails_use_the_email_sender(
+    service: NotificationService,
+    mailer: StubEmailSender,
+    users: FakeAuthRepository,
+    classrooms: FakeClassroomRepository,
+) -> None:
+    _member(users, classrooms, 7, "66010001@kmitl.ac.th", "Nattapong")
+
+    service.notify_members(7, NotificationKind.ASSIGNMENT_PUBLISHED, PAYLOAD)
+
+    assert [m.to for m in mailer.messages] == ["66010001@kmitl.ac.th"]

@@ -19,7 +19,7 @@ from questly.core.assignments.ports import (
     VersionRepository,
 )
 from questly.core.auth.pages import DemoAccount
-from questly.core.auth.ports import AuthRepository, Clock
+from questly.core.auth.ports import AuthRepository, Clock, RateLimiter
 from questly.core.classrooms.ports import ClassroomRepository, ClassroomStats
 from questly.core.documents.ports import (
     DocumentIngestor,
@@ -77,6 +77,13 @@ def fake_settings(
     )
 
 
+class NoRateLimit:
+    """A RateLimiter that never refuses, so a test can log in as often as it likes."""
+
+    def hit(self, bucket: str, key: str) -> None:
+        return None
+
+
 def build_app(
     *,
     settings: Settings | None = None,
@@ -99,6 +106,7 @@ def build_app(
     admin_repository: AdminRepository | None = None,
     system_health_checker: SystemHealthChecker | None = None,
     verification_mailer: EmailSender | None = None,
+    bulk_email_sender: EmailSender | None = None,
     clock: Clock | None = None,
     classroom_repository: ClassroomRepository | None = None,
     classroom_stats: ClassroomStats | None = None,
@@ -106,6 +114,9 @@ def build_app(
     code_runner: Runner | None = None,
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     max_upload_size_bytes: int = DEFAULT_MAX_UPLOAD_SIZE_BYTES,
+    rate_limiter: RateLimiter | None = None,
+    secure_cookies: bool = False,
+    expose_docs: bool = True,
 ) -> FastAPI:
     """Return an app whose every port is backed by a fake."""
     if topic_repository is None:
@@ -150,6 +161,8 @@ def build_app(
         classroom_repository = FakeClassroomRepository()
     if classroom_stats is None:
         classroom_stats = FakeClassroomStats()
+    if rate_limiter is None:
+        rate_limiter = NoRateLimit()
 
     return create_app(
         settings=settings or fake_settings(max_upload_size_bytes=max_upload_size_bytes),
@@ -170,6 +183,8 @@ def build_app(
         vector_repository=vector_repository,
         auth_repository=auth_repository,
         email_sender=verification_mailer,
+        # None: member emails go through verification_mailer, never a queue.
+        bulk_email_sender=bulk_email_sender,
         notification_repository=notification_repository,
         admin_repository=admin_repository,
         system_health_checker=system_health_checker,
@@ -180,5 +195,7 @@ def build_app(
         code_runner=code_runner,
         demo_accounts=demo_accounts,
         # httpx talks plain HTTP to the ASGI app and drops Secure cookies.
-        secure_cookies=False,
+        secure_cookies=secure_cookies,
+        rate_limiter=rate_limiter,
+        expose_docs=expose_docs,
     )

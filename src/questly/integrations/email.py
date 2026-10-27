@@ -1,4 +1,4 @@
-"""Email adapters: the stub that logs, and SMTP and Resend for real delivery.
+"""Email adapters: the stub that logs, SMTP and Resend for real delivery, and a queue.
 
 Every adapter satisfies the EmailSender port and raises only
 EmailDeliveryError. Messages are plain text in UTF-8, each send has a 10 second
@@ -8,8 +8,10 @@ body, a password or an API key.
 """
 
 import logging
+import queue
 import smtplib
 import ssl
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -18,7 +20,7 @@ from typing import Protocol, Self
 
 import httpx
 
-from questly.core.notifications.ports import EmailDeliveryError
+from questly.core.notifications.ports import EmailDeliveryError, EmailSender
 
 logger = logging.getLogger("questly.email")
 
@@ -47,6 +49,64 @@ class StubEmailSender:
         """Record an email sent through the notification email port."""
         self.messages.append(SentEmail(to=to, subject=subject, body=body))
         logger.warning("email to %s: %s\n%s", to, subject, body)
+
+
+class QueuedEmailSender:
+    """Hand emails to `inner` on one background thread; `send` never waits.
+
+    For member emails, so a publish to a large Classroom does not hold the
+    request while each message goes out. A failed send is logged with the
+    recipient's domain and the subject, never the body, and the worker moves on
+    to the next email. Emails still queued when the process stops are lost.
+    `start()` launches the worker; nothing is delivered before it.
+    """
+
+    def __init__(self, inner: EmailSender) -> None:
+        self._inner = inner
+        self._queue: queue.Queue[SentEmail] = queue.Queue()
+        self._started = False
+        self._start_lock = threading.Lock()
+
+    def send(self, *, to: str, subject: str, body: str) -> None:
+        self._queue.put(SentEmail(to=to, subject=subject, body=body))
+
+    def start(self) -> None:
+        """Start the worker thread; calling it again does nothing."""
+        with self._start_lock:
+            if self._started:
+                return
+            self._started = True
+        threading.Thread(target=self._work, name="email-queue", daemon=True).start()
+
+    def wait_until_idle(self) -> None:
+        """Block until every email queued so far has been attempted."""
+        self._queue.join()
+
+    def _work(self) -> None:
+        while True:
+            email = self._queue.get()
+            try:
+                self._deliver(email)
+            finally:
+                self._queue.task_done()
+
+    def _deliver(self, email: SentEmail) -> None:
+        domain = email.to.rpartition("@")[2]
+        try:
+            self._inner.send(to=email.to, subject=email.subject, body=email.body)
+        except EmailDeliveryError:
+            logger.warning(
+                "queued email to @%s not sent (subject %r)", domain, email.subject
+            )
+        # A bug in the inner sender must not end the worker. Its traceback can
+        # quote the body, so only the exception's type is logged.
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "queued email to @%s failed with %s (subject %r)",
+                domain,
+                type(exc).__name__,
+                email.subject,
+            )
 
 
 class SmtpConnection(Protocol):

@@ -13,6 +13,7 @@ from questly.core.assignments.models import (
     TestCase,
 )
 from questly.core.auth.models import Actor, Role
+from questly.core.notifications.ports import EmailSender
 from questly.integrations.email import StubEmailSender
 from tests.fakes.app import build_app, fake_settings
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeAuthRepository, FakeClock, seed_user
@@ -29,7 +30,12 @@ ADMIN = "admin@kmitl.ac.th"
 class Campus:
     """Somchai publishes one problem to Sec 1, where two Students are Members."""
 
-    def __init__(self, *, base_url: str = "http://localhost:8000") -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str = "http://localhost:8000",
+        bulk_email_sender: EmailSender | None = None,
+    ) -> None:
         users = FakeAuthRepository()
         accounts = {}
         for email, name, role in [
@@ -50,6 +56,7 @@ class Campus:
             settings=replace(fake_settings(), base_url=base_url),
             auth_repository=users,
             verification_mailer=self.mailer,
+            bulk_email_sender=bulk_email_sender,
             clock=self.clock,
         )
         classrooms = self.app.state.classroom_service

@@ -107,6 +107,28 @@ class VerificationEmailNotSentError(Exception):
         self.user = user
 
 
+class RateLimitBucket(StrEnum):
+    """The auth requests a RateLimiter counts, each with its own limit (OPS-44).
+
+    LOGIN, SIGNUP and RESEND count per client address; the *_EMAIL buckets
+    count per account, keyed by rate_limit_key_for_email.
+    """
+
+    LOGIN = "login"
+    SIGNUP = "signup"
+    RESEND = "resend"
+    LOGIN_EMAIL = "login_email"
+    RESEND_EMAIL = "resend_email"
+
+
+class RateLimitedError(Exception):
+    """A client used up its RateLimiter bucket; it may retry after the delay."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"rate limited, retry after {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
 class LinkDisplay(StrEnum):
     """How G-04a shows a kept verification link, if at all."""
 
@@ -402,6 +424,12 @@ def _digest(token: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def rate_limit_key_for_email(email: str) -> str:
+    """The per-account RateLimiter key: a digest, so the limiter never holds an
+    email and an attacker-chosen long address still makes a short key."""
+    return _digest(_normalize_email(email))
 
 
 def _is_kmitl(email: str) -> bool:
