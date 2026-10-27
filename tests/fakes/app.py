@@ -114,6 +114,8 @@ def build_app(
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     max_upload_size_bytes: int = DEFAULT_MAX_UPLOAD_SIZE_BYTES,
     rate_limiter: RateLimiter | None = None,
+    secure_cookies: bool = False,
+    expose_docs: bool = True,
 ) -> FastAPI:
     """Return an app whose every port is backed by a fake."""
     if topic_repository is None:
@@ -190,6 +192,7 @@ def build_app(
         code_runner=code_runner,
         demo_accounts=demo_accounts,
         # httpx talks plain HTTP to the ASGI app and drops Secure cookies.
-        secure_cookies=False,
+        secure_cookies=secure_cookies,
         rate_limiter=rate_limiter,
+        expose_docs=expose_docs,
     )

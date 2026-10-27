@@ -11,7 +11,7 @@ from questly.core.auth.models import Actor, Role
 from questly.core.documents.models import DocumentStatus, KnowledgeDocument
 from questly.core.documents.ports import DocumentRepositoryError
 from questly.core.documents.service import DocumentService, fail_stuck_ingestions
-from tests.fakes.app import build_app
+from tests.fakes.app import build_app, fake_settings
 from tests.fakes.documents import (
     FakeDocumentIngestor,
     FakeKnowledgeDocumentRepository,
@@ -295,9 +295,10 @@ def stuck_repository(
     )
     repository.seed_status(stuck.id, DocumentStatus.INGESTING)
 
-    def create_app() -> FastAPI:
+    def create_app(**_: object) -> FastAPI:
         return build_app(knowledge_document_repository=repository)
 
+    monkeypatch.setattr(main, "get_settings", fake_settings)
     monkeypatch.setattr(main, "create_app", create_app)
     monkeypatch.setattr(main, "start_sweeper", lambda recover: None)
     main.production_app.cache_clear()

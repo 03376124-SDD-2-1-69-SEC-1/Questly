@@ -25,7 +25,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from openrouter import OpenRouter
 from sqlmodel import Session
+from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from questly.ai.app.repository import VectorRepository
 from questly.ai.app.service import VectorService
@@ -194,6 +196,64 @@ def asset_url(path: str) -> str:
     return f"/static/{path}?v={version}"
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+# Pages run no JavaScript (AGENTS.md), use inline style attributes and load
+# Noto Sans Thai from Google Fonts. A task that adds a script must widen this.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'none'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; "
+    "object-src 'none'"
+)
+STRICT_TRANSPORT_SECURITY = "max-age=31536000"
+# Swagger UI and ReDoc need their scripts, so they go without the CSP.
+_DOCS_PATHS = ("/docs", "/docs/oauth2-redirect", "/redoc")
+
+
+class SecurityHeadersMiddleware:
+    """Add SECURITY_HEADERS to every response and the CSP to HTML pages.
+
+    Plain ASGI, so it is the one `async` piece of the app: Starlette has no
+    synchronous middleware.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        strict_transport: bool,
+        paths_without_csp: tuple[str, ...],
+    ) -> None:
+        self._app = app
+        self._strict_transport = strict_transport
+        self._paths_without_csp = paths_without_csp
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        path = scope["path"]
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.update(SECURITY_HEADERS)
+                if self._strict_transport:
+                    headers["Strict-Transport-Security"] = STRICT_TRANSPORT_SECURITY
+                is_html = headers.get("content-type", "").startswith("text/html")
+                if is_html and path not in self._paths_without_csp:
+                    headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+            await send(message)
+
+        await self._app(scope, receive, send_with_headers)
+
+
 class Runner(CodeRunner, BatchRunner, Protocol):
     """One runner serves Run (CodeRunner) and background Submit (BatchRunner)."""
 
@@ -253,6 +313,7 @@ def create_app(
     demo_accounts: tuple[DemoAccount, ...] | None = None,
     secure_cookies: bool | None = None,
     rate_limiter: RateLimiter | None = None,
+    expose_docs: bool | None = None,
 ) -> FastAPI:
     """Build the application, wiring SQL adapters for anything not supplied."""
     # Resolved lazily and at most once each, so an app built entirely from
@@ -272,11 +333,17 @@ def create_app(
             resolved_factory.append(build_session_factory(build_engine(use_settings())))
         return resolved_factory[0]
 
+    # /docs, /redoc and /openapi.json are on unless production_app() hides them.
+    if expose_docs is None:
+        expose_docs = True
     application = FastAPI(
         title="Questly",
         description="A modular-monolith service for instructor assignment authoring.",
         version="0.1.0",
         responses={422: {"model": ApplicationErrorResponse}},
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
     )
     application.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
@@ -295,6 +362,12 @@ def create_app(
     if secure_cookies is None:
         secure_cookies = True
     application.state.secure_cookies = secure_cookies
+    # HSTS only where cookies are Secure, i.e. where the app is served on HTTPS.
+    application.add_middleware(
+        SecurityHeadersMiddleware,
+        strict_transport=secure_cookies,
+        paths_without_csp=_DOCS_PATHS if expose_docs else (),
+    )
     if rate_limiter is None:
         rate_limiter = SlidingWindowRateLimiter(AUTH_RATE_LIMITS)
     application.state.rate_limiter = rate_limiter
@@ -672,7 +745,10 @@ def production_app() -> FastAPI:
     threads or startup writes; a lifespan hook would need `async def`, which
     this codebase does not use.
     """
-    application = create_app()
+    settings = get_settings()
+    application = create_app(
+        settings=settings, expose_docs=settings.app_env != PRODUCTION
+    )
     try:
         application.state.fail_stuck_ingestions()
     except Exception:
