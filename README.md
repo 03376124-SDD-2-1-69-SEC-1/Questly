@@ -190,7 +190,9 @@ missing variable. Messages are plain text in UTF-8, each send times out after
 - **Development link.** With the `stub` backend and `APP_ENV` other than
   `production`, G-04 shows the verification link on the page so you can follow it
   without a mailbox. It never appears in production, with `smtp` or `resend`, or
-  in any API response.
+  in any API response. Anyone who can reach the app can read the link for any
+  unverified address, so never run the stub on a host other people can reach
+  (a shared staging server, say) and set `APP_ENV=production` or a real backend there.
 - **A failed send is not a failed sign-up.** The account and its link stay
   created. G-04 says the email could not be sent and offers "ส่งอีเมลอีกครั้ง",
   and `POST /api/v1/auth/verify/resend` answers 503 `email_delivery_failed`.
