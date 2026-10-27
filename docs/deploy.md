@@ -251,7 +251,7 @@ Do every item before anyone outside the team gets the URL.
       `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy` and
       `Strict-Transport-Security`.
 - [ ] 11 wrong-password logins to one account give 429 on the 11th.
-- [ ] A request from a second network (phone on mobile data) to a different account is not limited while the first account is. If uvicorn is not honouring the forwarded client address, every visitor shares one per-address bucket and the whole site gets 100 logins per 5 minutes; recheck `--proxy-headers` and `--forwarded-allow-ips`.
+- [ ] `journalctl -u questly -n 20` shows your real public IP on the access lines, not `127.0.0.1`. If it shows `127.0.0.1`, uvicorn is not honouring the forwarded client address and every visitor shares one per-address bucket (100 logins per 5 minutes for the whole site); recheck `--proxy-headers` and `--forwarded-allow-ips`.
 - [ ] Know the two layers: a loose per-address flood guard (100 logins per 5 min, 60 sign-ups per hour, 30 resends per 15 min), because a lab shares one campus NAT address, and per-account limits (10 logins per 15 min and 3 resends per 15 min per email).
 - [ ] A Student who is not a Member gets 404 on another Classroom's
       Assignment URL, and a non-Admin gets 403 on `/admin`.
