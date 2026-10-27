@@ -27,7 +27,7 @@
 
     <form method="post" action="/login" class="flex flex-col gap-4">
       {{ csrf_field() }}
-      {{ field("email", "อีเมลสถาบัน", type="email", value=email, placeholder="name@kmitl.ac.th", required=true, autocomplete="username") }}
+      {{ field("email", "อีเมล", type="email", value=email, placeholder="name@example.com", required=true, autocomplete="username") }}
       {% if error == "wrong_password" %}
       <div data-state="G-01a">
         {{ field("password", "รหัสผ่าน", type="password", error="Email or password is incorrect.", required=true, autocomplete="current-password") }}

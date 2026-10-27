@@ -51,7 +51,7 @@
         {{ hidden("email", email) }}
         <div class="text-center">{{ button("ส่งอีเมลอีกครั้ง" if state == "waiting" else "Send a new link", variant="primary" if state == "expired" else "secondary") }}</div>
       {% else %}
-        {{ field("email", "อีเมลสถาบัน", type="email", placeholder="name@kmitl.ac.th", required=true) }}
+        {{ field("email", "อีเมล", type="email", placeholder="name@example.com", required=true) }}
         {{ button("Send a new link", block=true) }}
       {% endif %}
     </form>

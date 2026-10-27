@@ -27,6 +27,7 @@ from questly.core.notifications.service import NotificationService
 logger = logging.getLogger(__name__)
 
 KMITL_DOMAIN = "@kmitl.ac.th"
+MAX_EMAIL_LENGTH = 254
 MIN_PASSWORD_LENGTH = 8
 VERIFICATION_TTL = timedelta(hours=24)
 SESSION_TTL = timedelta(days=14)
@@ -39,6 +40,18 @@ _SCRYPT_P = 1
 
 class NotKmitlEmailError(Exception):
     """G-03a: only @kmitl.ac.th addresses may sign up."""
+
+
+class UseKmitlOptionError(Exception):
+    """An external sign-up with an @kmitl.ac.th address (ADR-0013)."""
+
+
+class InvalidEmailError(Exception):
+    """An external sign-up whose address is not a plausible email."""
+
+
+class ExternalCannotRequestInstructorError(Exception):
+    """Only @kmitl.ac.th accounts may ask for Instructor rights (ADR-0013)."""
 
 
 class EmailAlreadyRegisteredError(Exception):
@@ -121,13 +134,26 @@ class AuthService:
         confirm_password: str,
         wants_instructor: bool,
         faculty: str,
+        external: bool = False,
     ) -> User:
+        """Create a Student account and send its verification link.
+
+        `external` is the "บุคคลภายนอก" choice on G-03: any valid address
+        outside @kmitl.ac.th, Student only (ADR-0013).
+        """
         email = _normalize_email(email)
         full_name = full_name.strip()
         faculty = faculty.strip()
         if not full_name:
             raise ValueError("full name must not be blank")
-        if not email.endswith(KMITL_DOMAIN):
+        if external:
+            if _is_kmitl(email):
+                raise UseKmitlOptionError
+            if not _is_valid_email(email):
+                raise InvalidEmailError
+            if wants_instructor:
+                raise ExternalCannotRequestInstructorError
+        elif not _is_kmitl(email):
             raise NotKmitlEmailError
         if len(password) < MIN_PASSWORD_LENGTH:
             raise PasswordTooShortError
@@ -241,6 +267,8 @@ class AuthService:
         faculty = faculty.strip()
         if actor.role is not Role.STUDENT:
             raise PermissionDeniedError
+        if not _is_kmitl(actor.email):
+            raise ExternalCannotRequestInstructorError
         if not faculty:
             raise FacultyRequiredError
         if self._repository.find_pending_instructor_request(actor.user_id) is not None:
@@ -343,3 +371,18 @@ def _digest(token: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _is_kmitl(email: str) -> bool:
+    """Exactly @kmitl.ac.th; a subdomain such as @mail.kmitl.ac.th is not."""
+    return email.endswith(KMITL_DOMAIN)
+
+
+def _is_valid_email(email: str) -> bool:
+    """One @, a local part, a dotted domain with no empty label, no whitespace."""
+    if len(email) > MAX_EMAIL_LENGTH or any(c.isspace() for c in email):
+        return False
+    local, at, domain = email.partition("@")
+    if not at or not local or "@" in domain or "." not in domain:
+        return False
+    return all(domain.split("."))
