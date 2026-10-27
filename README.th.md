@@ -161,6 +161,34 @@ BASE_URL=https://questly.example.com
 และ `EMBEDDING_MODEL` ใช้เลือกโมเดล ค่า default อยู่ใน `src/questly/config.py`
 ห้าม commit ไฟล์ `.env` หรือใส่ credentials จริงลงใน `.env.example`
 
+#### อีเมล
+
+`EMAIL_BACKEND` เลือกวิธีส่งอีเมลยืนยันและอีเมลแจ้งเตือน:
+
+| `EMAIL_BACKEND` | การทำงาน | ตัวแปรที่ต้องมี |
+| --- | --- | --- |
+| `stub` (ค่าเริ่มต้นนอก production) | ไม่ส่งอีเมลจริง เขียนอีเมลทั้งฉบับรวมลิงก์ลง log | ไม่มี |
+| `smtp` | ส่งผ่านเซิร์ฟเวอร์ SMTP ด้วย standard library | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`; เลือกได้ `SMTP_SECURITY` (`starttls` เป็นค่าเริ่มต้น หรือ `ssl`) และ `SMTP_PORT` (587 สำหรับ `starttls`, 465 สำหรับ `ssl`) |
+| `resend` | ส่งผ่าน REST API ของ [Resend](https://resend.com) | `EMAIL_FROM`, `RESEND_API_KEY` |
+
+`EMAIL_FROM` เป็นอีเมลเปล่า ๆ หรือ `Questly <noreply@โดเมนของคุณ>` ก็ได้
+ถ้า backend ที่เลือกขาดตัวแปร แอปจะไม่ start และข้อความ error บอกชื่อตัวแปรที่ขาดครบทุกตัว
+อีเมลเป็น plain text แบบ UTF-8 ส่งแต่ละฉบับหมดเวลาที่ 10 วินาที และไม่ retry
+
+- **production ปฏิเสธ `stub`** ถ้า `APP_ENV=production` แต่ไม่ตั้งหรือตั้ง
+  `EMAIL_BACKEND=stub` แอปจะไม่ start ให้ใช้ `smtp` หรือ `resend`
+- **โฮสต์บน cloud** Render และ Railway แบบฟรีบล็อกพอร์ต SMTP ขาออก จึงใช้ `resend`
+- **ส่งถึง `@kmitl.ac.th`** Resend ส่งหาผู้รับทั่วไปได้เฉพาะจากโดเมนผู้ส่งที่ยืนยันแล้ว
+  ให้ยืนยันโดเมนของคุณใน Resend แล้วส่งจากโดเมนนั้น
+- **ลิงก์สำหรับตอนพัฒนา** เมื่อใช้ backend `stub` และ `APP_ENV` ไม่ใช่ `production`
+  หน้า G-04 จะแสดงลิงก์ยืนยันบนหน้าเพื่อให้กดต่อได้โดยไม่ต้องมีกล่องจดหมาย
+  จะไม่แสดงบน production, เมื่อใช้ `smtp`/`resend` และไม่อยู่ใน response ของ API
+  ใครที่เข้าถึงแอปได้จะอ่านลิงก์ของอีเมลที่ยังไม่ยืนยันได้ทุกอีเมล จึงห้ามรัน `stub`
+  บนโฮสต์ที่คนอื่นเข้าถึงได้ (เช่น staging ที่ใช้ร่วมกัน) ให้ตั้ง `APP_ENV=production` หรือใช้ backend จริงแทน
+- **ส่งอีเมลไม่ผ่านไม่ได้แปลว่าสมัครไม่ผ่าน** บัญชีและลิงก์ยังถูกสร้างไว้ หน้า G-04
+  บอกว่าส่งอีเมลไม่สำเร็จพร้อมปุ่ม "ส่งอีเมลอีกครั้ง" และ
+  `POST /api/v1/auth/verify/resend` ตอบ 503 `email_delivery_failed`
+
 ### 5. รัน Database Migrations
 
 ```bash

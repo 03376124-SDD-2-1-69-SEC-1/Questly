@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import logging
 import secrets
 from dataclasses import replace
 from datetime import timedelta
@@ -20,7 +21,10 @@ from questly.core.auth.models import (
     VerificationToken,
 )
 from questly.core.auth.ports import AuthRepository, Clock
+from questly.core.notifications.ports import EmailDeliveryError
 from questly.core.notifications.service import NotificationService
+
+logger = logging.getLogger(__name__)
 
 KMITL_DOMAIN = "@kmitl.ac.th"
 MIN_PASSWORD_LENGTH = 8
@@ -77,6 +81,18 @@ class InstructorRequestExistsError(Exception):
     """The account already has a pending Instructor request."""
 
 
+class VerificationEmailNotSentError(Exception):
+    """The account and its verification token exist, but the email did not go out.
+
+    `user` is the account, so a caller can carry on as if the sign-up worked and
+    offer a resend.
+    """
+
+    def __init__(self, user: User) -> None:
+        super().__init__("verification email could not be sent")
+        self.user = user
+
+
 class AuthService:
     """Sign-up, verification, login and session resolution."""
 
@@ -87,11 +103,14 @@ class AuthService:
         clock: Clock,
         *,
         base_url: str,
+        show_verification_link: bool = False,
     ) -> None:
         self._repository = repository
         self._notification_service = notification_service
         self._clock = clock
         self._base_url = base_url.rstrip("/")
+        self._show_verification_link = show_verification_link
+        self._latest_links: dict[str, str] = {}
 
     def sign_up(
         self,
@@ -141,6 +160,7 @@ class AuthService:
             raise VerificationLinkExpiredError
         self._repository.update_verification_token(replace(stored, used=True))
         user = self._require_user(stored.user_id)
+        self._latest_links.pop(user.email, None)
         return self._repository.update_user(replace(user, email_verified=True))
 
     def resend_verification(self, email: str) -> None:
@@ -149,6 +169,15 @@ class AuthService:
         if user is None or user.email_verified:
             return
         self._send_verification(user)
+
+    def demo_link_for(self, email: str) -> str:
+        """The latest verification link sent to `email`, or "" when none is kept.
+
+        Links are kept in memory only when the composition root turned on
+        `show_verification_link`, which it does for the stub sender outside
+        production, so a developer can follow the link without a mailbox.
+        """
+        return self._latest_links.get(_normalize_email(email), "")
 
     def log_in(self, *, email: str, password: str) -> LoginResult:
         user = self._repository.find_user_by_email(_normalize_email(email))
@@ -235,6 +264,11 @@ class AuthService:
         return summaries
 
     def _send_verification(self, user: User) -> None:
+        """Store a fresh token and mail its link.
+
+        Raises VerificationEmailNotSentError when the mail provider fails; the
+        token stays stored, so a later resend is all the account needs.
+        """
         token = secrets.token_urlsafe(32)
         verify_path = f"{self._base_url}/verify?token={token}"
 
@@ -245,15 +279,23 @@ class AuthService:
                 expires_at=self._clock.now() + VERIFICATION_TTL,
             )
         )
-        self._notification_service.send_email(
-            to=user.email,
-            subject="Verify your Questly email",
-            body=(
-                f"Hi {user.full_name},\n\n"
-                "Open this link to verify your email:\n\n"
-                f"{verify_path}\n"
-            ),
-        )
+        if self._show_verification_link:
+            self._latest_links[user.email] = verify_path
+        try:
+            self._notification_service.send_email(
+                to=user.email,
+                subject="Verify your Questly email",
+                body=(
+                    f"Hi {user.full_name},\n\n"
+                    "Open this link to verify your email:\n\n"
+                    f"{verify_path}\n"
+                ),
+            )
+        except EmailDeliveryError as exc:
+            logger.warning(
+                "verification email for user %s was not sent: %s", user.id, exc
+            )
+            raise VerificationEmailNotSentError(user) from exc
 
     def _live_session(self, token: str) -> Session:
         session = self._repository.find_session(_digest(token))

@@ -33,6 +33,7 @@ from questly.core.generation.ports import (
     GenerationJobStore,
     ProviderQuota,
 )
+from questly.core.notifications.ports import EmailSender
 from questly.core.submissions.ports import SubmissionRepository
 from questly.core.topics.ports import TopicRepository
 from questly.integrations.email import StubEmailSender
@@ -97,7 +98,7 @@ def build_app(
     notification_repository: FakeNotificationRepository | None = None,
     admin_repository: AdminRepository | None = None,
     system_health_checker: SystemHealthChecker | None = None,
-    verification_mailer: StubEmailSender | None = None,
+    verification_mailer: EmailSender | None = None,
     clock: Clock | None = None,
     classroom_repository: ClassroomRepository | None = None,
     classroom_stats: ClassroomStats | None = None,

@@ -27,6 +27,7 @@ from questly.core.auth.service import (
     NotKmitlEmailError,
     PasswordMismatchError,
     PasswordTooShortError,
+    VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
 )
@@ -96,6 +97,9 @@ def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
         _fail(422, "faculty_required", "Faculty is required for an instructor request")
     except EmailAlreadyRegisteredError:
         _fail(409, "email_already_registered", "Email already registered")
+    except VerificationEmailNotSentError as not_sent:
+        # the account exists; the client can ask for a resend
+        user = not_sent.user
     return user_response(user)
 
 
@@ -113,7 +117,10 @@ def verify(request: Request, payload: VerifyRequest) -> UserResponse:
 @router.post("/verify/resend", status_code=status.HTTP_202_ACCEPTED)
 def resend(request: Request, payload: ResendRequest) -> Response:
     """Email a fresh verification link if the account exists and is unverified."""
-    auth_service(request).resend_verification(payload.email)
+    try:
+        auth_service(request).resend_verification(payload.email)
+    except VerificationEmailNotSentError:
+        _fail(503, "email_delivery_failed", "The email could not be sent")
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
