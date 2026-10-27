@@ -35,6 +35,7 @@ from questly.core.auth.service import (
     VerificationEmailNotSentError,
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
+    rate_limit_key_for_email,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -69,15 +70,33 @@ def _fail(status_code: int, code: str, message: str) -> NoReturn:
     )
 
 
-def enforce_rate_limit(request: Request, bucket: RateLimitBucket) -> None:
+def enforce_rate_limit(
+    request: Request, bucket: RateLimitBucket, *, email: str | None = None
+) -> None:
     """Raise a 429 with Retry-After once this client has used up `bucket`.
 
     The key is the connecting address. Forwarding headers are never read here:
     uvicorn rewrites the address from them only for a trusted proxy, so a
     client cannot choose its own key. main.py renders the 429 as G-05 for a
     page and keeps the JSON envelope for /api/.
+
+    With `email`, the account's own bucket is counted next, so many students
+    behind one campus NAT share only the loose per-address limit. A request
+    the address bucket refuses never reaches the account bucket.
     """
-    key = UNKNOWN_CLIENT if request.client is None else request.client.host
+    address = UNKNOWN_CLIENT if request.client is None else request.client.host
+    _hit(request, bucket, address)
+    if email is not None:
+        _hit(request, _ACCOUNT_BUCKETS[bucket], rate_limit_key_for_email(email))
+
+
+_ACCOUNT_BUCKETS = {
+    RateLimitBucket.LOGIN: RateLimitBucket.LOGIN_EMAIL,
+    RateLimitBucket.RESEND: RateLimitBucket.RESEND_EMAIL,
+}
+
+
+def _hit(request: Request, bucket: RateLimitBucket, key: str) -> None:
     try:
         request.app.state.rate_limiter.hit(bucket, key)
     except RateLimitedError as limited:
@@ -156,7 +175,7 @@ def verify(request: Request, payload: VerifyRequest) -> UserResponse:
 @router.post("/verify/resend", status_code=status.HTTP_202_ACCEPTED)
 def resend(request: Request, payload: ResendRequest) -> Response:
     """Email a fresh verification link if the account exists and is unverified."""
-    enforce_rate_limit(request, RateLimitBucket.RESEND)
+    enforce_rate_limit(request, RateLimitBucket.RESEND, email=payload.email)
     try:
         auth_service(request).resend_verification(payload.email)
     except VerificationEmailNotSentError:
@@ -169,7 +188,7 @@ def log_in(
     request: Request, payload: LoginRequest, response: Response
 ) -> LoginResponse:
     """Start a session; the token travels in an HttpOnly cookie."""
-    enforce_rate_limit(request, RateLimitBucket.LOGIN)
+    enforce_rate_limit(request, RateLimitBucket.LOGIN, email=payload.email)
     try:
         result = auth_service(request).log_in(
             email=payload.email, password=payload.password

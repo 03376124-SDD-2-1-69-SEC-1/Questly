@@ -163,12 +163,15 @@ _SWEEP_SECONDS = 15.0
 
 logger = logging.getLogger("questly.main")
 
-# Per client address: slows password guessing and caps the mail one address
-# can make us send (OPS-44).
+# A classroom signs in together behind one campus NAT address, so the
+# per-address buckets only stop floods; the per-account buckets slow password
+# guessing and cap the verification mail one inbox can be sent (OPS-44).
 AUTH_RATE_LIMITS = {
-    RateLimitBucket.LOGIN: RateLimit(limit=10, window_seconds=5 * 60),
-    RateLimitBucket.SIGNUP: RateLimit(limit=5, window_seconds=60 * 60),
-    RateLimitBucket.RESEND: RateLimit(limit=5, window_seconds=15 * 60),
+    RateLimitBucket.LOGIN: RateLimit(limit=100, window_seconds=5 * 60),
+    RateLimitBucket.SIGNUP: RateLimit(limit=60, window_seconds=60 * 60),
+    RateLimitBucket.RESEND: RateLimit(limit=30, window_seconds=15 * 60),
+    RateLimitBucket.LOGIN_EMAIL: RateLimit(limit=10, window_seconds=15 * 60),
+    RateLimitBucket.RESEND_EMAIL: RateLimit(limit=3, window_seconds=15 * 60),
 }
 
 

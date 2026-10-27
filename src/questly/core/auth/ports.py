@@ -85,7 +85,8 @@ class AuthRepository(Protocol):
 
 
 class RateLimiter(Protocol):
-    """Counts auth requests per client so password guessing and mail floods stop."""
+    """Counts auth requests per client address and per account, so password
+    guessing and mail floods stop."""
 
     def hit(self, bucket: str, key: str) -> None:
         """Count one request from `key` against `bucket`.

@@ -29,6 +29,7 @@ from questly.core.auth.service import (
     VerificationLinkExpiredError,
     VerificationLinkInvalidError,
     hash_password,
+    rate_limit_key_for_email,
     verify_password,
 )
 from questly.core.notifications.service import NotificationService
@@ -404,3 +405,13 @@ def test_stub_email_sender_logs_the_verify_link(
 def test_base_url_is_required(repository: FakeAuthRepository) -> None:
     with pytest.raises(TypeError, match="base_url"):
         AuthService(repository, StubEmailSender(), FakeClock())  # type: ignore[call-arg]
+
+
+def test_rate_limit_key_is_one_short_digest_per_account() -> None:
+    key = rate_limit_key_for_email(" Somchai@KMITL.ac.th ")
+
+    assert key == rate_limit_key_for_email("somchai@kmitl.ac.th")
+    assert key != rate_limit_key_for_email("malee@kmitl.ac.th")
+    assert "somchai" not in key.lower()
+    assert len(key) == 64
+    assert len(rate_limit_key_for_email("a" * 5000 + "@kmitl.ac.th")) == 64

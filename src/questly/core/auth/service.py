@@ -108,11 +108,17 @@ class VerificationEmailNotSentError(Exception):
 
 
 class RateLimitBucket(StrEnum):
-    """The auth requests a RateLimiter counts, each with its own limit (OPS-44)."""
+    """The auth requests a RateLimiter counts, each with its own limit (OPS-44).
+
+    LOGIN, SIGNUP and RESEND count per client address; the *_EMAIL buckets
+    count per account, keyed by rate_limit_key_for_email.
+    """
 
     LOGIN = "login"
     SIGNUP = "signup"
     RESEND = "resend"
+    LOGIN_EMAIL = "login_email"
+    RESEND_EMAIL = "resend_email"
 
 
 class RateLimitedError(Exception):
@@ -418,6 +424,12 @@ def _digest(token: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def rate_limit_key_for_email(email: str) -> str:
+    """The per-account RateLimiter key: a digest, so the limiter never holds an
+    email and an attacker-chosen long address still makes a short key."""
+    return _digest(_normalize_email(email))
 
 
 def _is_kmitl(email: str) -> bool:

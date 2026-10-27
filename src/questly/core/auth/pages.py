@@ -238,7 +238,7 @@ def login_submit(
 ) -> Response:
     """G-01 submit: 01a wrong password, 01b email not verified."""
     require_csrf(request, csrf_token)
-    enforce_rate_limit(request, RateLimitBucket.LOGIN)
+    enforce_rate_limit(request, RateLimitBucket.LOGIN, email=email)
     try:
         result = auth_service(request).log_in(email=email, password=password)
     except InvalidCredentialsError:
@@ -361,7 +361,7 @@ def verify_resend(
 ) -> HTMLResponse:
     """G-01b / G-04c "Send a new link"."""
     require_csrf(request, csrf_token)
-    enforce_rate_limit(request, RateLimitBucket.RESEND)
+    enforce_rate_limit(request, RateLimitBucket.RESEND, email=email)
     delivery_failed = False
     try:
         auth_service(request).resend_verification(email)
