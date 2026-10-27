@@ -166,6 +166,35 @@ Set `OPENROUTER_API_KEY` to call OpenRouter for generation and embeddings
 values in `src/questly/config.py`. Never commit `.env` or place real
 credentials in `.env.example`.
 
+#### Email
+
+`EMAIL_BACKEND` picks how verification and notification emails leave the app:
+
+| `EMAIL_BACKEND` | Behaviour | Variables it needs |
+| --- | --- | --- |
+| `stub` (default outside production) | Sends nothing. The whole email, link included, is written to the log. | none |
+| `smtp` | Sends through an SMTP server with the standard library. | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`; optional `SMTP_SECURITY` (`starttls` by default, or `ssl`) and `SMTP_PORT` (587 for `starttls`, 465 for `ssl`) |
+| `resend` | Sends through the [Resend](https://resend.com) REST API. | `EMAIL_FROM`, `RESEND_API_KEY` |
+
+`EMAIL_FROM` may be a bare address or `Questly <noreply@your-domain>`. A backend
+with missing variables stops the app at startup, and the error names every
+missing variable. Messages are plain text in UTF-8, each send times out after
+10 seconds, and nothing retries.
+
+- **Production refuses `stub`.** With `APP_ENV=production`, an unset or `stub`
+  `EMAIL_BACKEND` stops the app at startup. Use `smtp` or `resend`.
+- **Cloud hosts.** The free tiers of Render and Railway block outbound SMTP
+  ports, so use `resend` there.
+- **Mailing `@kmitl.ac.th`.** Resend only delivers to arbitrary recipients from
+  a verified sending domain, so verify your domain in Resend and send from it.
+- **Development link.** With the `stub` backend and `APP_ENV` other than
+  `production`, G-04 shows the verification link on the page so you can follow it
+  without a mailbox. It never appears in production, with `smtp` or `resend`, or
+  in any API response.
+- **A failed send is not a failed sign-up.** The account and its link stay
+  created. G-04 says the email could not be sent and offers "ส่งอีเมลอีกครั้ง",
+  and `POST /api/v1/auth/verify/resend` answers 503 `email_delivery_failed`.
+
 ### 5. Apply Database Migrations
 
 ```bash
