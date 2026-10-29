@@ -10,6 +10,7 @@ from questly.core.assignments.models import (
     Difficulty,
     Schedule,
     TestCase,
+    TestCaseKind,
 )
 from questly.core.auth.models import Actor, Role
 from tests.fakes.app import build_app
@@ -20,11 +21,24 @@ TEACHER = "somchai.p@kmitl.ac.th"
 STUDENT = "66010001@kmitl.ac.th"
 OUTSIDER = "66010002@kmitl.ac.th"
 
+HIDDEN_CASES = [
+    TestCase(
+        input_data="3\n1 2 3\n9",
+        expected_output="secret-hidden-answer",
+        kind=TestCaseKind.HIDDEN,
+    ),
+    TestCase(
+        input_data="0\n\n1",
+        expected_output="secret-edge-answer",
+        kind=TestCaseKind.EDGE,
+    ),
+]
+
 
 class Campus:
     """Somchai owns Sec 1 with one published problem; Nattapong is a Member."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, with_hidden_cases: bool = False) -> None:
         users = FakeAuthRepository()
         accounts = {}
         for email, name, role in [
@@ -52,7 +66,10 @@ class Campus:
                 title="Binary search",
                 problem_statement="Print the index of x, or -1.",
                 difficulty=Difficulty.MEDIUM,
-                test_cases=[TestCase(input_data="1\n4\n4", expected_output="0")],
+                test_cases=[
+                    TestCase(input_data="1\n4\n4", expected_output="0"),
+                    *(HIDDEN_CASES if with_hidden_cases else []),
+                ],
             ),
             Schedule(deadline=DEADLINE),
             [self.classroom.id],
@@ -97,7 +114,7 @@ async def test_problem_list_per_role() -> None:
 
 @pytest.mark.anyio
 async def test_get_problem_and_assignment() -> None:
-    campus = Campus()
+    campus = Campus(with_hidden_cases=True)
     student = await campus.client_for(STUDENT)
     outsider = await campus.client_for(OUTSIDER)
 
@@ -107,7 +124,20 @@ async def test_get_problem_and_assignment() -> None:
 
     assert problem.json()["number"] == 1
     assert assignment.json()["title"] == "Binary search"
+    assert {case["kind"] for case in assignment.json()["test_cases"]} == {"sample"}
+    assert "secret" not in assignment.text
     assert hidden.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_owner_still_sees_every_test_case() -> None:
+    campus = Campus(with_hidden_cases=True)
+    teacher = await campus.client_for(TEACHER)
+
+    assignment = await teacher.get(f"/api/v1/assignments/{campus.assignment_id}")
+
+    kinds = [case["kind"] for case in assignment.json()["test_cases"]]
+    assert kinds == ["sample", "hidden", "edge"]
 
 
 @pytest.mark.anyio

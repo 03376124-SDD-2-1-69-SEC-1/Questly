@@ -293,7 +293,10 @@ class AssignmentService:
     # ---- Content and Versions ----------------------------------------------
 
     def get(self, actor: Actor, assignment_id: int) -> Assignment:
-        """The owner, or a Member of a Classroom it is posted to."""
+        """The owner, or a Member of a Classroom it is posted to.
+
+        Only the owner sees every test case; a Member sees the sample ones.
+        """
         assignment = self._assignment(assignment_id)
         if assignment.owner_id == actor.user_id:
             return assignment
@@ -301,7 +304,14 @@ class AssignmentService:
             if self._classrooms.role_of(actor, posting.classroom_id) is not (
                 ClassroomRole.OUTSIDER
             ):
-                return assignment
+                return replace(
+                    assignment,
+                    test_cases=[
+                        test_case
+                        for test_case in assignment.test_cases
+                        if test_case.visible_to_students
+                    ],
+                )
         raise AssignmentNotFoundError
 
     def edit(
