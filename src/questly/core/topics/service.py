@@ -1,5 +1,6 @@
 """Topic use cases independent from HTTP and database technology."""
 
+from questly.core.auth.models import Actor, PermissionDeniedError, Role
 from questly.core.topics.models import Topic
 from questly.core.topics.ports import TopicRepository
 
@@ -25,7 +26,8 @@ class TopicService:
     def __init__(self, repository: TopicRepository) -> None:
         self._repository = repository
 
-    def create(self, *, name: str, description: str | None) -> Topic:
+    def create(self, actor: Actor, *, name: str, description: str | None) -> Topic:
+        _require_instructor(actor)
         name, description = _normalize_values(name, description)
         self._ensure_name_available(name)
         return self._repository.create(Topic(name=name, description=description))
@@ -41,11 +43,13 @@ class TopicService:
 
     def replace(
         self,
+        actor: Actor,
         *,
         topic_id: int,
         name: str,
         description: str | None,
     ) -> Topic:
+        _require_instructor(actor)
         self.get(topic_id)
         name, description = _normalize_values(name, description)
         self._ensure_name_available(name, excluding_topic_id=topic_id)
@@ -55,11 +59,13 @@ class TopicService:
 
     def patch(
         self,
+        actor: Actor,
         *,
         topic_id: int,
         name: str | _Unset = UNSET,
         description: str | None | _Unset = UNSET,
     ) -> Topic:
+        _require_instructor(actor)
         current = self.get(topic_id)
         new_name = current.name if isinstance(name, _Unset) else name
         new_description = (
@@ -71,7 +77,8 @@ class TopicService:
             Topic(id=topic_id, name=new_name, description=new_description)
         )
 
-    def delete(self, topic_id: int) -> None:
+    def delete(self, actor: Actor, topic_id: int) -> None:
+        _require_instructor(actor)
         if not self._repository.delete(topic_id):
             raise TopicNotFoundError
 
@@ -93,6 +100,12 @@ class TopicService:
         if excluding_topic_id is not None and owner.id == excluding_topic_id:
             return
         raise TopicNameConflictError
+
+
+def _require_instructor(actor: Actor) -> None:
+    """Topics are shared reference data: only Instructors change them."""
+    if actor.role is not Role.INSTRUCTOR:
+        raise PermissionDeniedError
 
 
 def _normalize_values(name: str, description: str | None) -> tuple[str, str | None]:

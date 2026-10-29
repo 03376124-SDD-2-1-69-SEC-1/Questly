@@ -3,7 +3,9 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from questly.core.auth.models import Role
 from tests.fakes.app import build_app
+from tests.fakes.auth import DEFAULT_PASSWORD, FakeAuthRepository, seed_user
 
 
 @pytest.fixture()
@@ -76,13 +78,28 @@ async def test_openapi_documents_shared_validation_envelope(client):
 
 
 @pytest.mark.anyio
-async def test_existing_topic_error_codes_are_unchanged(client):
-    missing = await client.get("/api/v1/topics/999999")
-    assert missing.status_code == 404
-    assert missing.json()["detail"]["code"] == "topic_not_found"
-    assert (
-        await client.post("/api/v1/topics", json={"name": "Graphs"})
-    ).status_code == 201
-    duplicate = await client.post("/api/v1/topics", json={"name": "Graphs"})
-    assert duplicate.status_code == 409
-    assert duplicate.json()["detail"]["code"] == "topic_name_conflict"
+async def test_existing_topic_error_codes_are_unchanged():
+    users = FakeAuthRepository()
+    seed_user(
+        users,
+        email="somchai.p@kmitl.ac.th",
+        full_name="Somchai",
+        role=Role.INSTRUCTOR,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=build_app(auth_repository=users)),
+        base_url="http://testserver",
+    ) as client:
+        await client.post(
+            "/api/v1/auth/login",
+            json={"email": "somchai.p@kmitl.ac.th", "password": DEFAULT_PASSWORD},
+        )
+        missing = await client.get("/api/v1/topics/999999")
+        assert missing.status_code == 404
+        assert missing.json()["detail"]["code"] == "topic_not_found"
+        assert (
+            await client.post("/api/v1/topics", json={"name": "Graphs"})
+        ).status_code == 201
+        duplicate = await client.post("/api/v1/topics", json={"name": "Graphs"})
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"]["code"] == "topic_name_conflict"
