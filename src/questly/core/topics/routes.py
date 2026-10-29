@@ -4,6 +4,7 @@ from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from questly.core.auth.current import current_actor
 from questly.core.topics.models import Topic
 from questly.core.topics.schemas import (
     TopicCreate,
@@ -49,6 +50,7 @@ def create_topic(request: Request, payload: TopicCreate) -> TopicResponse:
     try:
         return _response(
             _service(request).create(
+                current_actor(request),
                 name=payload.name,
                 description=payload.description,
             )
@@ -82,6 +84,7 @@ def replace_topic(
     try:
         return _response(
             _service(request).replace(
+                current_actor(request),
                 topic_id=topic_id,
                 name=payload.name,
                 description=payload.description,
@@ -104,6 +107,7 @@ def patch_topic(
     try:
         return _response(
             _service(request).patch(
+                current_actor(request),
                 topic_id=topic_id,
                 name=payload.name if "name" in fields_set else UNSET,
                 description=(
@@ -121,7 +125,7 @@ def patch_topic(
 def delete_topic(request: Request, topic_id: int) -> Response:
     """Delete one Topic."""
     try:
-        _service(request).delete(topic_id)
+        _service(request).delete(current_actor(request), topic_id)
     except TopicNotFoundError:
         _raise_not_found()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
