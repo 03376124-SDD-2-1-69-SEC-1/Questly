@@ -13,6 +13,7 @@ from tests.fakes.auth import (
 )
 from tests.fakes.documents import FakeKnowledgeDocumentRepository
 from tests.integration.forms import csrf_token, log_in, post_form
+from tests.integration.markup import loading_icons
 
 TEACHER = "somchai.p@kmitl.ac.th"
 OTHER_TEACHER = "warunee.p@kmitl.ac.th"
@@ -88,6 +89,26 @@ async def test_t06_shows_empty_and_processing_and_failed_states(world: World) ->
     assert 'data-state="ingesting"' in page.text
     assert 'data-state="failed"' in page.text
     assert '<meta http-equiv="refresh" content="5">' in page.text
+
+
+@pytest.mark.anyio
+async def test_t06_moves_only_the_document_that_is_ingesting(world: World) -> None:
+    world.document(world.teacher, "uploaded.pdf")
+    world.document(world.teacher, "ready.pdf", DocumentStatus.READY)
+    world.document(world.teacher, "failed.pdf", DocumentStatus.FAILED)
+    still = await (await _client(world)).get("/documents")
+    world.document(world.teacher, "processing.pdf", DocumentStatus.INGESTING)
+    moving = await (await _client(world)).get("/documents")
+    refused = await (await _client(world, STUDENT)).get("/documents")
+
+    assert refused.status_code == 403 and loading_icons(refused.text) == []
+    assert still.status_code == 200 and "failed.pdf" in still.text
+    assert loading_icons(still.text) == []
+    assert moving.status_code == 200
+    [icon] = loading_icons(moving.text)
+    assert 'data-loading="ingesting"' in icon
+    assert 'aria-hidden="true"' in icon
+    assert '<meta http-equiv="refresh" content="5">' in moving.text
 
 
 @pytest.mark.anyio

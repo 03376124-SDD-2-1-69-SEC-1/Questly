@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_components/forms.html" import button, field, csrf_field with context %}
-{% from "_components/ui.html" import alert, badge, empty_state, page_header %}
+{% from "_components/ui.html" import alert, badge, empty_state, loading_icon, page_header %}
 {% block head %}{% if has_refresh_state %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block title %}เอกสารของฉัน · Questly{% endblock %}
 {% block content %}
@@ -32,6 +32,7 @@
             {% set tones = {"uploaded": "info", "ingesting": "warn", "ready": "ok", "failed": "danger"} %}
             {{ badge(status_labels[document.status], tone=tones[state]) }}
             {% if state == "ingesting" %}
+              {{ loading_icon("ingesting") }}
               <span>กำลังประมวลผล หน้านี้จะรีเฟรชอัตโนมัติ</span>
             {% elif state == "failed" %}
               <span>ประมวลผลไม่สำเร็จ เอกสารนี้ยังใช้สร้างโจทย์ไม่ได้</span>
