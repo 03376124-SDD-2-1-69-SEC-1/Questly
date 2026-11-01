@@ -12,7 +12,9 @@ from questly.core.generation.models import (
     QuotaKind,
 )
 from tests.integration.forms import post_form
+from tests.integration.markup import loading_icons
 from tests.integration.test_drafts import (
+    ADMIN,
     OTHER_TEACHER,
     OUTSIDER,
     STUDENT,
@@ -231,6 +233,23 @@ async def test_t03c_shows_a_running_job_with_progress_and_both_quotas() -> None:
 
 
 @pytest.mark.anyio
+async def test_t03c_shows_the_generating_icon_and_a_cancel_control() -> None:
+    campus = Campus()
+    teacher = await campus.client_for(TEACHER)
+    job_id = await running_job(campus, teacher)
+    url = job_url(campus, job_id)
+
+    page = await teacher.get(url)
+
+    assert page.status_code == 200
+    assert 'data-page="T-03c"' in page.text
+    [icon] = loading_icons(page.text)
+    assert 'data-loading="generating"' in icon
+    assert 'aria-hidden="true"' in icon
+    assert f'<form method="post" action="{url}/cancel"' in page.text
+
+
+@pytest.mark.anyio
 async def test_t03c_redirects_to_the_draft_when_the_job_is_done() -> None:
     campus = Campus()
     teacher = await campus.client_for(TEACHER)
@@ -267,6 +286,7 @@ async def test_t03c_shows_t03d_with_the_form_refilled_when_the_job_failed() -> N
     assert 'data-state="T-03d"' in page.text
     assert "Refill me" in page.text
     assert "no quota was used" in page.text
+    assert loading_icons(page.text) == []
 
 
 @pytest.mark.anyio
@@ -293,6 +313,7 @@ async def test_t03c_says_so_when_the_job_is_gone() -> None:
     assert 'data-page="T-03c"' in page.text
     assert "This generation is no longer available, try again" in page.text
     assert "http-equiv" not in page.text
+    assert loading_icons(page.text) == []
 
 
 @pytest.mark.anyio
@@ -325,10 +346,16 @@ async def test_a_job_that_was_cancelled_does_not_run() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("who", "status"), [(STUDENT, 403), (OTHER_TEACHER, 404), (OUTSIDER, 404)]
+    ("who", "status", "home"),
+    [
+        (STUDENT, 403, "/classes"),
+        (OTHER_TEACHER, 404, "/classes"),
+        (OUTSIDER, 404, "/classes"),
+        (ADMIN, 404, "/admin/settings"),
+    ],
 )
 async def test_only_the_instructor_who_started_the_job_can_see_it(
-    who: str, status: int
+    who: str, status: int, home: str
 ) -> None:
     campus = Campus()
     owner = await campus.client_for(TEACHER)
@@ -337,8 +364,9 @@ async def test_only_the_instructor_who_started_the_job_can_see_it(
     url = job_url(campus, job_id)
 
     seen = await client.get(url)
-    cancelled = await post_form(client, f"{url}/cancel", {}, page="/classes")
+    cancelled = await post_form(client, f"{url}/cancel", {}, page=home)
 
     assert seen.status_code == status
+    assert loading_icons(seen.text) == []
     assert cancelled.status_code == status
     assert campus.job_store.get(job_id).status.value == "running"

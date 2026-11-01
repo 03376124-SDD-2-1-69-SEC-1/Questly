@@ -1064,7 +1064,11 @@
     border-color: var(--color-acc-ink);
     background: var(--color-acc-ink);
     color: #fff;
-    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn-primary:hover {
+      transform: translateY(-1px);
+    }
   }
   .btn-soft {
     border-color: transparent;
@@ -1373,6 +1377,17 @@
     }
     .toast-icon {
       animation: landing-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.2s both;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      animation: toast-hide 0s 6s forwards;
+    }
+  }
+  @keyframes toast-hide {
+    to {
+      opacity: 0;
+      visibility: hidden;
     }
   }
   @keyframes toast-in {
@@ -1869,7 +1884,11 @@
   .class-card:hover {
     border-color: var(--color-brand-300);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-3px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .class-card:hover {
+      transform: translateY(-3px);
+    }
   }
   .class-cover {
     display: flex;
@@ -2198,6 +2217,9 @@
     min-height: 100px;
     font-size: var(--text-xxs);
     color: var(--color-faint);
+  }
+  .console-empty .loading-icon {
+    margin-bottom: 8px;
   }
   .test-result {
     padding: 16px;
@@ -3250,6 +3272,44 @@
     from {
       opacity: 0;
       transform: translateX(-10px);
+    }
+  }
+  .loading-icon svg {
+    transform-origin: center;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .loading-icon[data-loading="generating"] svg {
+      animation: loading-twinkle 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="judging"] svg {
+      animation: loading-flip 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="ingesting"] svg {
+      animation: loading-slide 1.4s ease-in-out infinite;
+    }
+    @keyframes loading-twinkle {
+      50% {
+        opacity: 0.55;
+        transform: scale(0.8) rotate(-15deg);
+      }
+    }
+    @keyframes loading-flip {
+      0%, 35% {
+        transform: rotate(0deg);
+      }
+      65%, 100% {
+        transform: rotate(180deg);
+      }
+    }
+    @keyframes loading-slide {
+      45% {
+        opacity: 0;
+        transform: translateX(7px);
+      }
+      50% {
+        opacity: 0;
+        transform: translateX(-7px);
+      }
     }
   }
   @media (max-width: 900px) {

@@ -1,5 +1,6 @@
 """HTTP tests for the A-01 admin pages: Users, AI and System status."""
 
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -17,6 +18,7 @@ from tests.fakes.auth import (
 )
 from tests.fakes.generation import FakeProviderQuota
 from tests.integration.forms import log_in, post_form
+from tests.integration.markup import loading_icons
 
 ADMIN = "admin@kmitl.ac.th"
 INSTRUCTOR = "instructor@kmitl.ac.th"
@@ -94,7 +96,10 @@ async def test_admin_sees_each_tab_on_its_own_url(path: str, tab: str) -> None:
 async def test_other_roles_get_403_on_every_tab(email: str, path: str) -> None:
     client = await Admin().client_for(email)
 
-    assert (await client.get(path)).status_code == 403
+    response = await client.get(path)
+
+    assert response.status_code == 403
+    assert loading_icons(response.text) == []
 
 
 @pytest.mark.anyio
@@ -525,6 +530,26 @@ async def test_only_the_status_tab_refreshes_itself(path: str, tab: str) -> None
     page = (await client.get(path)).text
 
     assert ('http-equiv="refresh" content="60"' in page) is (tab == "status")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("path", "tab"), TABS)
+async def test_no_tab_shows_a_loading_icon_while_it_waits_to_refresh(
+    path: str, tab: str
+) -> None:
+    client = await Admin().client_for(ADMIN)
+
+    response = await client.get(path)
+
+    assert response.status_code == 200
+    assert loading_icons(response.text) == []
+    hints = re.findall(r'<p class="hint[^"]*">(.*?)</p>', response.text, re.S)
+    notes = [hint for hint in hints if "Refreshes every 60 seconds." in hint]
+    if tab == "status":
+        [note] = notes
+        assert "<svg" in note
+    else:
+        assert notes == []
 
 
 # ---- G-01 landing ----------------------------------------------------------------

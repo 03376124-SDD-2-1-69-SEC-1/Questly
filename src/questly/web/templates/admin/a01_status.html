@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_components/ui.html" import badge, alert %}
+{% from "_components/icons.html" import icon %}
 {% from "admin/a01_tabs.html" import admin_shell %}
 {% block head %}<meta http-equiv="refresh" content="60">{% endblock %}
 {% block title %}System status · Admin settings · Questly{% endblock %}
@@ -23,7 +24,7 @@
       </tbody>
     </table>
   </div>
-  <p class="hint mt-3">Refreshes every 60 seconds.</p>
+  <p class="hint mt-3 flex items-center gap-2">{{ icon("clock", 16) }}<span>Refreshes every 60 seconds.</span></p>
   {% endcall %}
 </section>
 {% endblock %}
