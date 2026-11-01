@@ -40,6 +40,26 @@ Result key: **matches** = same layout and components as Figma; **adapted** = Fig
 - Loading icons (FE-12): `loading_icon(kind)` in `_components/ui.html`, CSS only, keyframes inside `prefers-reduced-motion: no-preference`. Generating twinkles `sparkles`, ingesting slides `file`, generic spins a pink arc after the Figma `.spinner`. Judging flips an `hourglass` icon that is **not in Figma**; it was added to `_components/icons.html` because no Figma icon reads as "waiting for a result".
 - Tailwind generates utilities from every `--container-*` and `--spacing-*` token, so layout helper classes are named `.settings-wrap` and `.review-wrap` to avoid colliding with `w-settings` and `w-review`.
 
+## Button loading spike (FE-12, ticket 05)
+
+**Decision: fall back to polling pages only.** Run, Submit and Generate keep their current look, and ticket 06 is not needed. No CSS-only mechanism passed all three rules in all three engines. Every mechanism that keeps a state until the response arrives depends on focus, and Chromium restores the page from the back-forward cache with the button still focused, so the spinner is still there after Back. On the spike server, which sets no cookies, `Cache-Control: no-store` did not stop Chromium 156 from caching the page either, so no bfcache-ineligible Chromium case was observed. The app sends no `Cache-Control` on pages.
+
+The button state would be feedback only. The server already refuses a double click. Run and Submit return 409 `submission_pending` while a Submission is pending (`_require_none_pending`, test `test_api_refuses_submit_and_run_while_a_submission_is_pending` passes). A second Generate returns the job already running (`start_job`, test `test_a_second_start_returns_the_job_already_running` passes).
+
+Method: a throwaway harness, not committed. The UI walk script was not used because it cannot time a pending navigation or detect a bfcache restore. A local server returns the S-02 markup (Run and Submit outside the form, joined by `form="solve-form"`) and the T-03 markup (Generate inside the form, `required` prompt), with `app.css`. The form POST waits 1.5 s and then returns 303. The harness used Playwright 1.64.1 with Chromium 156 (full build, bfcache re-enabled because Playwright turns it off), WebKit 27.2 and Firefox 157. Each run did an 80 ms mouse press, Tab followed by Enter or Space, and Back. A probe property was read on every frame and every 10 ms. Times are measured from the press.
+
+| Mechanism | Chromium | WebKit | Firefox | Result |
+|---|---|---|---|---|
+| A `.btn:focus:not(:focus-visible)` | 3 ms, held; Back: **stuck** | **never** (a click does not focus a button) | 14 ms, held | fail (rules 1, 2); no state on Enter or Space in any engine |
+| A2 `.btn:focus` | 1 ms; Back: **stuck** | **never** on click | 14 ms | fail (rules 1, 2); also shows when you Tab past |
+| B `.btn:active` | 1 ms, gone on release | 16 ms, gone | 14 ms, gone | fail (rule 1): Enter and Space never show it |
+| G `<span tabindex="-1">` wrapper, `:focus` | 1 ms; Back: **stuck** | 14 ms, held (the wrapper takes focus) | 16 ms, held | fail (rules 1, 2): no state on Enter or Space in any engine |
+| P / CMD `popovertarget` / `commandfor` on the submit button | never | never | never | fail (rule 1): a submit button with a form ignores both attributes |
+| D cross-document view transition | starts at 1.6 s | starts at 1.6 s | not supported | fail (rule 1): starts when the new page is ready |
+| C `form:not(:invalid)` guard | | | | rule 3 only: with it, no state on an invalid T-03; without it, one frame on press |
+
+`:target` and checkbox tricks were not built. A submit cannot change the fragment, and a button inside a `<label>` does not toggle the checkbox. In Playwright, WebKit and Firefox reload the page on Back instead of restoring it from bfcache. Forcing bfcache on in Firefox breaks Playwright's page handle. So rule 2 was observed there only on the reload path. Playwright's builds and profiles are not the shipped browsers, so a pass in WebKit or Firefox is weaker evidence than a fail. The decision rests on the Chromium and WebKit failures, which were observed. Screenshots of the stuck Chromium Back case and the WebKit no-focus case were reviewed during the spike and are not committed.
+
 ## Open items
 
 - Mobile checks were done by loading each page in 390px and 900px frames and checking for horizontal overflow (none found), not on a physical device.
