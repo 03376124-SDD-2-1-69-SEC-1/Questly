@@ -54,6 +54,32 @@ async def test_loading_icons_move_only_without_reduced_motion() -> None:
     assert [at for at in keyframes if not any(at in span for span in motion_ok)] == []
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("rel", "side"),
+    [
+        ('rel="icon" type="image/png" sizes="32x32"', 32),
+        ('rel="apple-touch-icon"', 180),
+    ],
+)
+async def test_page_links_a_small_questly_icon(rel: str, side: int) -> None:
+    transport = ASGITransport(app=build_app())
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        page = await client.get("/login")
+        link = re.search(rf'<link {re.escape(rel)} href="([^"]+)"', page.text)
+        assert link is not None, f"no <link {rel}> on /login"
+        icon = await client.get(link.group(1))
+
+    width = int.from_bytes(icon.content[16:20], "big")
+    height = int.from_bytes(icon.content[20:24], "big")
+
+    assert icon.status_code == 200
+    assert icon.headers["content-type"] == "image/png"
+    assert icon.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert (width, height) == (side, side)
+    assert len(icon.content) < 50_000
+
+
 def test_asset_url_changes_when_the_file_changes(tmp_path, monkeypatch) -> None:
     import questly.main as main
 
