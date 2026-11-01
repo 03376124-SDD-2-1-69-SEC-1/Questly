@@ -1,5 +1,6 @@
 """HTTP tests for the A-01 admin pages: Users, AI and System status."""
 
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -533,20 +534,22 @@ async def test_only_the_status_tab_refreshes_itself(path: str, tab: str) -> None
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(("path", "tab"), TABS)
-async def test_only_the_status_tab_shows_that_it_is_live(path: str, tab: str) -> None:
+async def test_no_tab_shows_a_loading_icon_while_it_waits_to_refresh(
+    path: str, tab: str
+) -> None:
     client = await Admin().client_for(ADMIN)
 
     response = await client.get(path)
 
     assert response.status_code == 200
-    icons = loading_icons(response.text)
+    assert loading_icons(response.text) == []
+    hints = re.findall(r'<p class="hint[^"]*">(.*?)</p>', response.text, re.S)
+    notes = [hint for hint in hints if "Refreshes every 60 seconds." in hint]
     if tab == "status":
-        [icon] = icons
-        assert 'data-loading="generic"' in icon
-        assert 'aria-hidden="true"' in icon
-        assert "Refreshes every 60 seconds." in response.text
+        [note] = notes
+        assert "<svg" in note
     else:
-        assert icons == []
+        assert notes == []
 
 
 # ---- G-01 landing ----------------------------------------------------------------
