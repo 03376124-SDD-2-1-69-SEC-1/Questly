@@ -1620,6 +1620,9 @@
     font-size: var(--text-xxs);
     color: var(--color-faint);
   }
+  .console-empty .loading-icon {
+    margin-bottom: 8px;
+  }
   .test-result {
     padding: 16px;
   }
