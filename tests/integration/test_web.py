@@ -85,6 +85,21 @@ async def test_toast_hides_without_moving_under_reduced_motion() -> None:
 
 
 @pytest.mark.anyio
+async def test_hover_lifts_only_without_reduced_motion() -> None:
+    css = await _stylesheet()
+    motion_ok = _block_spans(css, "@media (prefers-reduced-motion: no-preference)")
+
+    lifts = [
+        (m.group(1).strip(), any(m.start() in span for span in motion_ok))
+        for m in re.finditer(r"([^{}]*:hover[^{}]*)\{([^{}]*)\}", css)
+        if "transform:" in m.group(2)
+    ]
+
+    assert [selector for selector, guarded in lifts if not guarded] == []
+    assert {".btn-primary:hover", ".class-card:hover"} <= {s for s, _ in lifts}
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("rel", "side"),
     [

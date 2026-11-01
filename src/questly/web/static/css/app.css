@@ -1064,7 +1064,11 @@
     border-color: var(--color-acc-ink);
     background: var(--color-acc-ink);
     color: #fff;
-    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn-primary:hover {
+      transform: translateY(-1px);
+    }
   }
   .btn-soft {
     border-color: transparent;
@@ -1880,7 +1884,11 @@
   .class-card:hover {
     border-color: var(--color-brand-300);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-3px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .class-card:hover {
+      transform: translateY(-3px);
+    }
   }
   .class-cover {
     display: flex;
