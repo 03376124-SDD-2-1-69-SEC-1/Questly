@@ -81,8 +81,15 @@ async def test_t06_shows_empty_and_processing_and_failed_states(world: World) ->
     assert 'data-state="T-06a"' in empty.text
     assert 'http-equiv="refresh"' not in empty.text
 
-    world.document(world.teacher, "processing.pdf", DocumentStatus.INGESTING)
     world.document(world.teacher, "failed.pdf", DocumentStatus.FAILED)
+    failed_only = await client.get("/documents")
+
+    assert failed_only.status_code == 200
+    assert "ล้มเหลว" in failed_only.text
+    assert 'data-state="failed"' in failed_only.text
+    assert 'http-equiv="refresh"' not in failed_only.text
+
+    world.document(world.teacher, "processing.pdf", DocumentStatus.INGESTING)
     page = await client.get("/documents")
 
     assert page.status_code == 200
@@ -109,6 +116,7 @@ async def test_t06_moves_only_the_document_that_is_ingesting(world: World) -> No
     assert [loading_icons(page.text) for page in refused] == [[], []]
     assert still.status_code == 200 and "failed.pdf" in still.text
     assert loading_icons(still.text) == []
+    assert 'http-equiv="refresh"' not in still.text
     assert moving.status_code == 200
     [icon] = loading_icons(moving.text)
     assert 'data-loading="ingesting"' in icon

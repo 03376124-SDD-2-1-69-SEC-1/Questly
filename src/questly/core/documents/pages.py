@@ -72,10 +72,9 @@ def _page(
             "status_labels": STATUS_LABELS,
             "notice": NOTICES.get(notice, ""),
             "error": ERRORS.get(error, ""),
+            # Only ingesting can change while the page is open; failed is final here.
             "has_refresh_state": any(
-                item.document.status
-                in {DocumentStatus.INGESTING, DocumentStatus.FAILED}
-                for item in documents
+                item.document.status is DocumentStatus.INGESTING for item in documents
             ),
         },
         status_code=status_code,
