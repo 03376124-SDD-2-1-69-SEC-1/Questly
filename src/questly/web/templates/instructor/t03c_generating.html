@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_components/forms.html" import action_form, link_button with context %}
-{% from "_components/ui.html" import page_header, alert %}
+{% from "_components/ui.html" import page_header, alert, loading_icon %}
 {% block head %}{% if not gone %}<meta http-equiv="refresh" content="2">{% endif %}{% endblock %}
 {% block title %}Generating · Questly{% endblock %}
 {% block content %}
@@ -17,7 +17,10 @@
     } %}
     {{ page_header("กำลังสร้างโจทย์…", "รอสักครู่ หน้านี้จะรีเฟรชเอง", eyebrow="AI PROBLEM CREATOR") }}
     <div class="card narrow mt-4 gap-4">
-      <progress class="progress" value="{{ progress.done_count }}" max="{{ progress.steps|length }}">{{ progress.done_count }} of {{ progress.steps|length }} steps done</progress>
+      <div class="flex items-center gap-3">
+        {{ loading_icon("generating") }}
+        <progress class="progress" value="{{ progress.done_count }}" max="{{ progress.steps|length }}">{{ progress.done_count }} of {{ progress.steps|length }} steps done</progress>
+      </div>
       <ul class="flex flex-col gap-1 text-xxs" aria-live="polite">
         {% for row in progress.steps %}
           {% if row.state.value == "done" %}

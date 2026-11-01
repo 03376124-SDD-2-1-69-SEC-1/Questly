@@ -24,7 +24,7 @@ Result key: **matches** = same layout and components as Figma; **adapted** = Fig
 | T-02 / 02a / 02b / 02c | `instructor/t02_*.html` | Results | adapted | The T-02a code view is a side panel, not a modal, still opened by `?student=`. No CSV export or comment box (no backend). Failing-test table moved to the side (or below when a student is open). |
 | T-03 / 03d | `instructor/t03_generate.html` | CreateProblem (prompt) | adapted | Documents are check cards (field names unchanged). Topic select instead of the Figma language select. Error alerts keep their English text (tests assert it). |
 | T-03a | `instructor/t03a_draft.html` | CreateProblem (draft) | adapted | Full citations panel added (Figma has none). |
-| T-03c | `instructor/t03c_generating.html` | none | no mock | Progress card restyled. |
+| T-03c | `instructor/t03c_generating.html` | none | no mock | Progress card restyled. A twinkling `sparkles` icon (`loading_icon("generating")`, FE-12) sits beside the progress bar; it is decorative (`aria-hidden`) and still under `prefers-reduced-motion`. Cancel stays in the card. |
 | T-04 steps 1-4 | `instructor/t04_*.html` | CreateProblem (review) | adapted | Step 1 has no input/output format fields (not in the model). Step 2 test rows show kind (sample/hidden/edge) instead of "Valid". Citations panel on step 1, chips on step 4. |
 | T-04b | `instructor/t04b_published.html` | CreateProblem (published) | matches | |
 | T-05 | `instructor/t05_edit.html` | none | no mock | Fields grouped in cards. |
@@ -37,6 +37,7 @@ Result key: **matches** = same layout and components as Figma; **adapted** = Fig
 - Thai copy is used for headings, labels and primary buttons. Strings that tests assert on, and status badge labels (`Passed`, `Resubmit needed`, ...), stay English.
 - Tests updated for changed copy: `test_drafts.py` (publish button text, row text), `test_problem_pages.py` (T-01 row text). Data assertions are untouched.
 - `core/classrooms/pages.py` passes `summary` to the Problems tab so the stats strip uses real numbers. No other Python changed.
+- Loading icons (FE-12): `loading_icon(kind)` in `_components/ui.html`, CSS only, keyframes inside `prefers-reduced-motion: no-preference`. Generating twinkles `sparkles`, ingesting slides `file`, generic spins a ring after the Figma `.spinner`. Judging flips an `hourglass` icon that is **not in Figma**; it was added to `_components/icons.html` because no Figma icon reads as "waiting for a result".
 - Tailwind generates utilities from every `--container-*` and `--spacing-*` token, so layout helper classes are named `.settings-wrap` and `.review-wrap` to avoid colliding with `w-settings` and `w-review`.
 
 ## Open items

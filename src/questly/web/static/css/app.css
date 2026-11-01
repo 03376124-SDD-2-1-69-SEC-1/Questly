@@ -3252,6 +3252,60 @@
       transform: translateX(-10px);
     }
   }
+  .loading-icon svg {
+    transform-origin: center;
+  }
+  .loading-ring {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--color-brand-100);
+    border-top-color: var(--color-acc);
+    border-radius: 50%;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .loading-icon[data-loading="generating"] svg {
+      animation: loading-twinkle 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="judging"] svg {
+      animation: loading-flip 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="ingesting"] svg {
+      animation: loading-slide 1.4s ease-in-out infinite;
+    }
+    .loading-ring {
+      animation: loading-spin 0.8s linear infinite;
+    }
+    @keyframes loading-twinkle {
+      50% {
+        opacity: 0.55;
+        transform: scale(0.8) rotate(-15deg);
+      }
+    }
+    @keyframes loading-flip {
+      0%, 35% {
+        transform: rotate(0deg);
+      }
+      65%, 100% {
+        transform: rotate(180deg);
+      }
+    }
+    @keyframes loading-slide {
+      45% {
+        opacity: 0;
+        transform: translateX(7px);
+      }
+      50% {
+        opacity: 0;
+        transform: translateX(-7px);
+      }
+    }
+    @keyframes loading-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  }
   @media (max-width: 900px) {
     .class-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));

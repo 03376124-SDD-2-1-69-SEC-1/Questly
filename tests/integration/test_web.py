@@ -1,6 +1,7 @@
 """Integration tests for the shared web layout."""
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,33 @@ async def test_stylesheet_url_carries_the_file_version() -> None:
     assert f'href="/static/css/app.css?v={version}"' in page.text
     assert css.status_code == 200
     assert ".btn-primary" in css.text
+
+
+def _block_spans(css: str, opener: str) -> list[range]:
+    """Character ranges of every `opener { ... }` block, braces matched."""
+    spans = []
+    for match in re.finditer(re.escape(opener), css):
+        start = css.index("{", match.end())
+        depth = 0
+        for end in range(start, len(css)):
+            depth += {"{": 1, "}": -1}.get(css[end], 0)
+            if depth == 0:
+                spans.append(range(match.start(), end + 1))
+                break
+    return spans
+
+
+@pytest.mark.anyio
+async def test_loading_icons_move_only_without_reduced_motion() -> None:
+    transport = ASGITransport(app=build_app())
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        css = (await client.get("/static/css/app.css")).text
+
+    motion_ok = _block_spans(css, "@media (prefers-reduced-motion: no-preference)")
+    keyframes = [m.start() for m in re.finditer(r"@keyframes loading-", css)]
+
+    assert keyframes
+    assert [at for at in keyframes if not any(at in span for span in motion_ok)] == []
 
 
 def test_asset_url_changes_when_the_file_changes(tmp_path, monkeypatch) -> None:
