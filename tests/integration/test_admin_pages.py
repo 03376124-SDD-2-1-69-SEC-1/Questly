@@ -17,6 +17,7 @@ from tests.fakes.auth import (
 )
 from tests.fakes.generation import FakeProviderQuota
 from tests.integration.forms import log_in, post_form
+from tests.integration.markup import loading_icons
 
 ADMIN = "admin@kmitl.ac.th"
 INSTRUCTOR = "instructor@kmitl.ac.th"
@@ -94,7 +95,10 @@ async def test_admin_sees_each_tab_on_its_own_url(path: str, tab: str) -> None:
 async def test_other_roles_get_403_on_every_tab(email: str, path: str) -> None:
     client = await Admin().client_for(email)
 
-    assert (await client.get(path)).status_code == 403
+    response = await client.get(path)
+
+    assert response.status_code == 403
+    assert loading_icons(response.text) == []
 
 
 @pytest.mark.anyio
@@ -525,6 +529,24 @@ async def test_only_the_status_tab_refreshes_itself(path: str, tab: str) -> None
     page = (await client.get(path)).text
 
     assert ('http-equiv="refresh" content="60"' in page) is (tab == "status")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("path", "tab"), TABS)
+async def test_only_the_status_tab_shows_that_it_is_live(path: str, tab: str) -> None:
+    client = await Admin().client_for(ADMIN)
+
+    response = await client.get(path)
+
+    assert response.status_code == 200
+    icons = loading_icons(response.text)
+    if tab == "status":
+        [icon] = icons
+        assert 'data-loading="generic"' in icon
+        assert 'aria-hidden="true"' in icon
+        assert "Refreshes every 60 seconds." in response.text
+    else:
+        assert icons == []
 
 
 # ---- G-01 landing ----------------------------------------------------------------
