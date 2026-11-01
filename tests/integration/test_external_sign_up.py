@@ -151,7 +151,7 @@ async def test_listed_domain_shows_the_emailed_link_and_it_verifies() -> None:
     assert [attempt.to for attempt in mailer.attempts] == ["somchai@kmitl.ac.th"]
     assert href == _sent_link(mailer)
     assert "ยืนยันอีเมล" in signup.text
-    assert "ระบบอีเมลของมหาวิทยาลัยกรองอีเมลจากเรา" in signup.text
+    assert "ไม่ได้รับอีเมลใช่ไหม? กดปุ่มนี้เพื่อยืนยันได้เลย!" in signup.text
     assert 'data-state="demo-link"' not in signup.text
     assert 'data-state="G-04b"' in verified.text
 
@@ -164,6 +164,52 @@ async def test_listed_domain_shows_the_link_in_production() -> None:
         signup = await post_form(client, "/signup", KMITL_SIGN_UP, page="/signup")
 
     assert _onscreen_href(signup.text) == _sent_link(mailer)
+
+
+@pytest.mark.anyio
+async def test_a_star_shows_the_link_for_any_domain_and_it_verifies() -> None:
+    mailer = ProviderDown(down=False)
+    async with asgi_client(_app(mailer, "*", app_env=PRODUCTION)) as client:
+        signup = await post_form(client, "/signup", EXTERNAL_SIGN_UP, page="/signup")
+        verified = await client.get(_onscreen_href(signup.text))
+
+    assert [attempt.to for attempt in mailer.attempts] == ["ada@example.com"]
+    assert "ไม่ได้รับอีเมลใช่ไหม? กดปุ่มนี้เพื่อยืนยันได้เลย!" in signup.text
+    assert _onscreen_href(signup.text) == _sent_link(mailer)
+    assert 'data-state="G-04b"' in verified.text
+
+
+@pytest.mark.anyio
+async def test_no_domains_shows_no_link_for_the_same_sign_up() -> None:
+    mailer = ProviderDown(down=False)
+    async with asgi_client(_app(mailer, app_env=PRODUCTION)) as client:
+        signup = await post_form(client, "/signup", EXTERNAL_SIGN_UP, page="/signup")
+
+    assert 'data-state="G-04a"' in signup.text
+    assert ONSCREEN not in signup.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mailer", "domains"),
+    [
+        (ProviderDown(down=False), ()),
+        (ProviderDown(), ("*",)),
+        (ProviderDown(), ()),
+    ],
+    ids=["sent", "failed-onscreen", "failed-warning"],
+)
+async def test_the_email_on_g04_is_shielded_from_cloudflare_obfuscation(
+    mailer: ProviderDown, domains: tuple[str, ...]
+) -> None:
+    async with asgi_client(_app(mailer, *domains)) as client:
+        signup = await post_form(client, "/signup", EXTERNAL_SIGN_UP, page="/signup")
+
+    assert "<!--email_off-->ada@example.com<!--/email_off-->" in signup.text
+    assert (
+        '<!--email_off--><input type="hidden" name="email" value="ada@example.com">'
+        "<!--/email_off-->"
+    ) in signup.text
 
 
 @pytest.mark.anyio

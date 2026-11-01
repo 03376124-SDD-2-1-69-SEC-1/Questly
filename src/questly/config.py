@@ -276,16 +276,16 @@ def _model_allowlist(generation_model: str) -> tuple[str, ...]:
 
 
 def _onscreen_verify_domains() -> tuple[str, ...]:
-    """ONSCREEN_VERIFY_DOMAINS, comma-separated, e.g. `kmitl.ac.th`."""
+    """ONSCREEN_VERIFY_DOMAINS, comma-separated: `kmitl.ac.th`, or `*` for all."""
     domains = []
     for entry in os.environ.get("ONSCREEN_VERIFY_DOMAINS", "").split(","):
         domain = entry.strip().lower().removeprefix("@")
         if not domain:
             continue
-        if not _DOMAIN.fullmatch(domain):
+        if domain != "*" and not _DOMAIN.fullmatch(domain):
             raise MissingConfigurationError(
-                "ONSCREEN_VERIFY_DOMAINS must list domains such as kmitl.ac.th, "
-                f"got {entry.strip()!r}."
+                "ONSCREEN_VERIFY_DOMAINS must list domains such as kmitl.ac.th "
+                f"or *, got {entry.strip()!r}."
             )
         domains.append(domain)
     return tuple(domains)
