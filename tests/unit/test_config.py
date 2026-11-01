@@ -360,6 +360,22 @@ def test_onscreen_verify_domains_are_trimmed_lowered_and_stripped_of_at(
     )
 
 
+def test_onscreen_verify_domains_accept_a_star(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONSCREEN_VERIFY_DOMAINS", "*")
+
+    assert config.get_settings().onscreen_verify_domains == ("*",)
+
+
+def test_onscreen_verify_domains_accept_a_star_beside_a_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONSCREEN_VERIFY_DOMAINS", "kmitl.ac.th, *")
+
+    assert config.get_settings().onscreen_verify_domains == ("kmitl.ac.th", "*")
+
+
 @pytest.mark.parametrize(
     "raw",
     ["localhost", "kmitl ac.th", "a@kmitl.ac.th", "kmitl.ac.th/x", "kmitl..ac.th"],

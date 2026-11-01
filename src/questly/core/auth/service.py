@@ -245,9 +245,10 @@ class AuthService:
     def shown_link_for(self, email: str) -> ShownLink:
         """The latest verification link of `email` and how G-04a shows it.
 
-        Links are kept in memory only for an email in an on-screen domain, or
-        for every email when the composition root turned on `show_demo_link`
-        (the stub sender outside production).
+        Links are kept in memory only for an email in an on-screen domain (any
+        domain when the list holds `*`), or for every email when the
+        composition root turned on `show_demo_link` (the stub sender outside
+        production).
         """
         email = _normalize_email(email)
         if email not in self._latest_links:
@@ -376,7 +377,9 @@ class AuthService:
             raise VerificationEmailNotSentError(user) from exc
 
     def _is_onscreen(self, email: str) -> bool:
-        return email.rpartition("@")[2] in self._onscreen_domains
+        return "*" in self._onscreen_domains or (
+            email.rpartition("@")[2] in self._onscreen_domains
+        )
 
     def _live_session(self, token: str) -> Session:
         session = self._repository.find_session(_digest(token))

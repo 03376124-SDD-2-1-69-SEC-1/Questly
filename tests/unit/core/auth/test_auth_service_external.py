@@ -198,6 +198,17 @@ def test_a_listed_domain_keeps_the_emailed_link_for_on_screen_use(
     )
 
 
+def test_a_star_keeps_the_emailed_link_for_every_domain(
+    repository: FakeAuthRepository, mailer: StubEmailSender
+) -> None:
+    service = _service(repository, mailer, onscreen_verify_domains=("*",))
+    _sign_up(service, "ada@example.com", external=True)
+
+    assert service.shown_link_for("ada@example.com") == ShownLink(
+        LinkDisplay.ONSCREEN, verification_path(mailer)
+    )
+
+
 def test_an_unlisted_domain_keeps_no_link(
     repository: FakeAuthRepository, mailer: StubEmailSender
 ) -> None:

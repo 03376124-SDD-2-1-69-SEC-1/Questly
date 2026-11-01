@@ -93,7 +93,10 @@ EMAIL_BACKEND=resend
 EMAIL_FROM=Questly <noreply@PLACEHOLDER_VERIFIED_DOMAIN>
 RESEND_API_KEY=PLACEHOLDER
 
-ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th
+# "*" = every email domain gets the on-screen "ยืนยันอีเมล" button, so verification
+# no longer proves mailbox ownership: anyone who knows an address can verify it.
+# Empty it and restart to turn it off.
+ONSCREEN_VERIFY_DOMAINS=*
 
 JUDGE0_URL=https://ce.judge0.com
 JUDGE0_AUTH_TOKEN=
@@ -264,7 +267,8 @@ Do every item before anyone outside the team gets the URL.
       Assignment URL, and a non-Admin gets 403 on `/admin`.
 - [ ] An Assignment titled `<img src=x onerror=alert(1)>` renders as text.
 - [ ] On T-06, a renamed `.exe` and a file over 20 MB are both refused.
-- [ ] Sign-up with a Gmail address receives a real email, and sign-up with an
-      `@kmitl.ac.th` address shows the on-screen "ยืนยันอีเมล" button.
+- [ ] Sign-up with a Gmail address receives a real email, and with
+      `ONSCREEN_VERIFY_DOMAINS=*` the same sign-up also shows the on-screen
+      "ยืนยันอีเมล" button.
 - [ ] Record the grade from `https://securityheaders.com` for
       `https://questly.comtech.fun`.
