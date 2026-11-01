@@ -229,6 +229,19 @@ who knows a `@kmitl.ac.th` address can create and verify a Student account with
 it. Instructor rights still need an Admin's approval. Remove the domain from
 `ONSCREEN_VERIFY_DOMAINS` once KMITL delivers our mail.
 
+The value `*` matches every email domain, so every unverified sign-up sees the
+button and the resend page shows the fresh link the same way. The line above
+the button reads `ไม่ได้รับอีเมลใช่ไหม? กดปุ่มนี้เพื่อยืนยันได้เลย!`. An empty
+value still shows no on-screen link. The email on G-04 is wrapped in
+`<!--email_off-->`, so Cloudflare's email obfuscation does not turn it into
+`[email protected]` (the CSP blocks scripts, so it would never be restored).
+
+**Security, `*` mode.** With `*`, on-screen verification proves mailbox
+ownership for no domain. Anyone who knows `victim@gmail.com` can register and
+verify it at once. The real owner then meets `already_registered`, and there is
+no password reset. Instructor rights still need an Admin's approval. To turn it
+off, empty `ONSCREEN_VERIFY_DOMAINS` and restart the app.
+
 #### Security hardening
 
 To run Questly on a server, follow [docs/deploy.md](docs/deploy.md). It ends
