@@ -54,6 +54,36 @@ async def test_loading_icons_move_only_without_reduced_motion() -> None:
     assert [at for at in keyframes if not any(at in span for span in motion_ok)] == []
 
 
+async def _stylesheet() -> str:
+    transport = ASGITransport(app=build_app())
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return (await client.get("/static/css/app.css")).text
+
+
+@pytest.mark.anyio
+async def test_toast_hides_without_moving_under_reduced_motion() -> None:
+    """The S-02 toast covers links; with motion off it must still go away."""
+    css = await _stylesheet()
+    reduce = _block_spans(css, "@media (prefers-reduced-motion: reduce)")
+
+    [rule] = [
+        m.group(1)
+        for m in re.finditer(r"\.toast \{([^{}]*)\}", css)
+        if any(m.start() in span for span in reduce)
+    ]
+    animation = re.search(r"animation:\s*([^;]+);", rule)
+    assert animation is not None
+    name, duration, delay, fill = animation.group(1).split()
+    [frames] = [
+        css[span.start : span.stop] for span in _block_spans(css, f"@keyframes {name} ")
+    ]
+
+    assert (duration, fill) == ("0s", "forwards")
+    assert float(delay.removesuffix("s")) >= 5
+    assert "visibility: hidden" in frames
+    assert "transform" not in frames
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("rel", "side"),

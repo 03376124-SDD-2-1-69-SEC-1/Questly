@@ -790,6 +790,18 @@
       animation: landing-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.2s both;
     }
   }
+  /* No fade with motion off, but it still has to leave: it sits over the S-02 links. */
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      animation: toast-hide 0s 6s forwards;
+    }
+  }
+  @keyframes toast-hide {
+    to {
+      opacity: 0;
+      visibility: hidden;
+    }
+  }
   @keyframes toast-in {
     from {
       opacity: 0;
