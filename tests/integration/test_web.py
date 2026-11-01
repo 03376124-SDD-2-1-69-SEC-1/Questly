@@ -118,6 +118,7 @@ async def test_page_links_a_small_questly_icon(rel: str, side: int) -> None:
     width = int.from_bytes(icon.content[16:20], "big")
     height = int.from_bytes(icon.content[20:24], "big")
 
+    assert "?v=" in link.group(1)
     assert icon.status_code == 200
     assert icon.headers["content-type"] == "image/png"
     assert icon.content[:8] == b"\x89PNG\r\n\x1a\n"

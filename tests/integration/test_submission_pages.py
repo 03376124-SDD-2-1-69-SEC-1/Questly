@@ -543,7 +543,10 @@ async def test_s02a_shows_the_judging_icon_while_the_submission_moves(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(("who", "status"), [("classmate", 200), ("sec2_student", 404)])
+@pytest.mark.parametrize(
+    ("who", "status"),
+    [("classmate", 200), ("sec2_student", 404), ("instructor", 200), ("admin", 404)],
+)
 async def test_s02a_is_only_the_submitting_students_page(
     demo: Demo, who: str, status: int
 ) -> None:
@@ -551,6 +554,8 @@ async def test_s02a_is_only_the_submitting_students_page(
     email = {
         "classmate": demo.seed.students[3].email,
         "sec2_student": demo.seed.students[7].email,
+        "instructor": demo.seed.somchai.email,
+        "admin": demo.seed.admin.email,
     }[who]
     client = await demo.client(email)
 

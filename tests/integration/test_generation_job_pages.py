@@ -14,6 +14,7 @@ from questly.core.generation.models import (
 from tests.integration.forms import post_form
 from tests.integration.markup import loading_icons
 from tests.integration.test_drafts import (
+    ADMIN,
     OTHER_TEACHER,
     OUTSIDER,
     STUDENT,
@@ -232,7 +233,7 @@ async def test_t03c_shows_a_running_job_with_progress_and_both_quotas() -> None:
 
 
 @pytest.mark.anyio
-async def test_t03c_shows_the_generating_icon_beside_a_cancel_control() -> None:
+async def test_t03c_shows_the_generating_icon_and_a_cancel_control() -> None:
     campus = Campus()
     teacher = await campus.client_for(TEACHER)
     job_id = await running_job(campus, teacher)
@@ -345,10 +346,16 @@ async def test_a_job_that_was_cancelled_does_not_run() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("who", "status"), [(STUDENT, 403), (OTHER_TEACHER, 404), (OUTSIDER, 404)]
+    ("who", "status", "home"),
+    [
+        (STUDENT, 403, "/classes"),
+        (OTHER_TEACHER, 404, "/classes"),
+        (OUTSIDER, 404, "/classes"),
+        (ADMIN, 404, "/admin/settings"),
+    ],
 )
 async def test_only_the_instructor_who_started_the_job_can_see_it(
-    who: str, status: int
+    who: str, status: int, home: str
 ) -> None:
     campus = Campus()
     owner = await campus.client_for(TEACHER)
@@ -357,7 +364,7 @@ async def test_only_the_instructor_who_started_the_job_can_see_it(
     url = job_url(campus, job_id)
 
     seen = await client.get(url)
-    cancelled = await post_form(client, f"{url}/cancel", {}, page="/classes")
+    cancelled = await post_form(client, f"{url}/cancel", {}, page=home)
 
     assert seen.status_code == status
     assert loading_icons(seen.text) == []
