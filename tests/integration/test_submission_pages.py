@@ -1,5 +1,6 @@
 """S-02 solve and T-02 results on the seeded demo, plus the submissions API."""
 
+import re
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import timedelta
@@ -8,8 +9,13 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from scripts.demo import BINARY_SEARCH, UPDATE_REASON, DemoSeed, build_demo_app
 
-from questly.core.auth.models import Actor
-from questly.core.submissions.models import BatchResult, BatchState, Recovery
+from questly.core.auth.models import Actor, User
+from questly.core.submissions.models import (
+    BatchResult,
+    BatchState,
+    Recovery,
+    SubmissionStatus,
+)
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeClock
 from tests.fakes.submissions import ScriptedCodeRunner
 from tests.integration.forms import log_in, post_form
@@ -468,6 +474,19 @@ async def test_page_authorizes_before_reaching_the_runner(
 PENDING_CODE = "print(3)  # waiting for the judge"
 
 
+def loading_icons(html: str) -> list[str]:
+    """The opening tag of every loading_icon on the page."""
+    return re.findall(r"<[^>]*\sdata-loading=[^>]*>", html)
+
+
+def _posting_id(demo: Demo, url: str, student: User) -> int:
+    return demo.app.state.assignment_service.problem(
+        Actor(student.id, student.role, student.full_name, student.email),
+        demo.sec1,
+        int(url.rsplit("/", 1)[1]),
+    ).posting.id
+
+
 async def _submit_during_an_outage(demo: Demo) -> AsyncClient:
     """Students[1] submits while the runner is down: the Submission stays
     pending until a sweep finds the runner back."""
@@ -505,6 +524,30 @@ async def test_s02a_refreshes_read_only_while_the_submission_is_judged(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("state", [SubmissionStatus.RECEIVED, SubmissionStatus.JUDGING])
+async def test_s02a_shows_the_judging_icon_while_the_submission_moves(
+    demo: Demo, state: SubmissionStatus
+) -> None:
+    student = demo.seed.students[1]
+    url = demo.url(BS)
+    client = await demo.client(student.email)
+    (last,) = demo.seed.submissions.list_for_student(
+        _posting_id(demo, url, student), student.id
+    )
+    demo.seed.submissions.add(
+        replace(last, id=None, attempt=2, status=state, score=None, results=())
+    )
+
+    page = await client.get(url)
+
+    assert page.status_code == 200 and 'data-state="S-02a"' in page.text
+    [icon] = loading_icons(page.text)
+    assert 'data-loading="judging"' in icon
+    assert 'aria-hidden="true"' in icon
+    assert "Judging attempt 2" in page.text
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(("who", "status"), [("classmate", 200), ("sec2_student", 404)])
 async def test_s02a_is_only_the_submitting_students_page(
     demo: Demo, who: str, status: int
@@ -521,6 +564,7 @@ async def test_s02a_is_only_the_submitting_students_page(
     assert page.status_code == status
     assert 'data-state="S-02a"' not in page.text
     assert "refresh" not in page.text
+    assert loading_icons(page.text) == []
 
 
 @pytest.mark.anyio
@@ -534,6 +578,7 @@ async def test_s02a_turns_into_the_result_toast_once_judged(demo: Demo) -> None:
 
     assert 'data-state="S-02a"' not in page.text and "refresh" not in page.text
     assert "toast-stack" in page.text and "attempt 2" in page.text
+    assert loading_icons(page.text) == []
 
 
 @pytest.mark.anyio
@@ -551,6 +596,7 @@ async def test_a_failed_submission_shows_an_alert_and_submit_works_again() -> No
     assert 'value="submit"' in page.text and "refresh" not in page.text
     assert "toast-stack" not in page.text
     assert "Not judged" in history.text
+    assert loading_icons(page.text) == []
 
 
 @pytest.mark.anyio
@@ -577,12 +623,9 @@ async def test_the_recovered_banner_shows_to_the_instructor_only(
     url = demo.url(BS)
     teacher_client = await demo.client(demo.seed.somchai.email)
     student_client = await demo.client(student.email)
-    posting_id = demo.app.state.assignment_service.problem(
-        Actor(student.id, student.role, student.full_name, student.email),
-        demo.sec1,
-        int(url.rsplit("/", 1)[1]),
-    ).posting.id
-    (last,) = demo.seed.submissions.list_for_student(posting_id, student.id)
+    (last,) = demo.seed.submissions.list_for_student(
+        _posting_id(demo, url, student), student.id
+    )
     recovered = demo.seed.submissions.add(
         replace(
             last,
@@ -609,3 +652,4 @@ async def test_the_recovered_banner_shows_to_the_instructor_only(
     assert recovered.attempt == 2
     for page in (own, history):
         assert "Recovered" not in page.text and "server restart" not in page.text
+    assert own.status_code == 200 and loading_icons(own.text) == []
