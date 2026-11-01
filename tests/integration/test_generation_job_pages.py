@@ -1,6 +1,5 @@
 """T-03 quota lines and the T-03c progress page, for every role."""
 
-import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,6 +12,7 @@ from questly.core.generation.models import (
     QuotaKind,
 )
 from tests.integration.forms import post_form
+from tests.integration.markup import loading_icons
 from tests.integration.test_drafts import (
     OTHER_TEACHER,
     OUTSIDER,
@@ -53,11 +53,6 @@ async def running_job(campus: Campus, client: AsyncClient) -> int:
 
 def job_url(campus: Campus, job_id: int) -> str:
     return f"/classes/{campus.classroom.id}/generate/jobs/{job_id}"
-
-
-def loading_icons(html: str) -> list[str]:
-    """The opening tag of every loading_icon on the page."""
-    return re.findall(r"<[^>]*\sdata-loading=[^>]*>", html)
 
 
 # ---- T-03: the two quota lines ------------------------------------------------

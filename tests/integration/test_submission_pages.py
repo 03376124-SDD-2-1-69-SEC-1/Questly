@@ -1,6 +1,5 @@
 """S-02 solve and T-02 results on the seeded demo, plus the submissions API."""
 
-import re
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import timedelta
@@ -19,6 +18,7 @@ from questly.core.submissions.models import (
 from tests.fakes.auth import DEFAULT_PASSWORD, FakeClock
 from tests.fakes.submissions import ScriptedCodeRunner
 from tests.integration.forms import log_in, post_form
+from tests.integration.markup import loading_icons
 
 SAMPLES = {"5\n1 3 5 7 9\n7": "3", "4\n2 4 6 8\n5": "-1"}
 
@@ -472,11 +472,6 @@ async def test_page_authorizes_before_reaching_the_runner(
 
 
 PENDING_CODE = "print(3)  # waiting for the judge"
-
-
-def loading_icons(html: str) -> list[str]:
-    """The opening tag of every loading_icon on the page."""
-    return re.findall(r"<[^>]*\sdata-loading=[^>]*>", html)
 
 
 def _posting_id(demo: Demo, url: str, student: User) -> int:
