@@ -98,14 +98,11 @@
 {%- endmacro %}
 
 {#- A decorative icon for a page that waits on the server; the text next to it
-    carries the state. kind: generating | judging | ingesting | generic (any
-    other value falls back to generic). Moves only without reduced motion. -#}
+    carries the state. kind: generating | judging | ingesting. Moves only
+    without reduced motion. -#}
 {% macro loading_icon(kind) -%}
 {%- set glyphs = {"generating": "sparkles", "judging": "hourglass", "ingesting": "file"} -%}
-{%- set kind = kind if kind in glyphs else "generic" -%}
-<span class="icon-well loading-icon" data-loading="{{ kind }}" aria-hidden="true">
-  {%- if kind == "generic" %}<i class="loading-ring"></i>{% else %}{{ icon(glyphs[kind], 20) }}{% endif -%}
-</span>
+<span class="icon-well loading-icon" data-loading="{{ kind }}" aria-hidden="true">{{ icon(glyphs[kind], 20) }}</span>
 {%- endmacro %}
 
 {#- "Somchai Prasert" -> "Somchai P." as the G-02 header shows it. -#}
