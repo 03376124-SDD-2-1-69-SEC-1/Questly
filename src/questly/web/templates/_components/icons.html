@@ -1,5 +1,6 @@
 {#
-  Questly icon set — the 21 stroke icons from the Figma Make design (App.tsx `paths`).
+  Questly icon set — the 21 stroke icons from the Figma Make design (App.tsx `paths`),
+  plus `hourglass` (FE-12, not in Figma; see docs/ui-audit.md).
   Pure inline SVG: no script elements, no event handlers, safe under
   tests/architecture/test_no_browser_javascript.py.
 
@@ -9,7 +10,7 @@
     {{ icon("book", 22, class="text-acc") }}
 
   Names: book bell chevron plus users chart code clock check x play send
-         settings sparkles file upload arrow copy more search shield
+         settings sparkles file upload arrow copy more search shield hourglass
 #}
 {% macro icon(name, size=18, class="") -%}
 <svg class="shrink-0{% if class %} {{ class }}{% endif %}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -55,6 +56,8 @@
 <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
 {%- elif name == "shield" -%}
 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/>
+{%- elif name == "hourglass" -%}
+<path d="M6 2h12M6 22h12"/><path d="M7 2v4l5 6 5-6V2M7 22v-4l5-6 5 6v4"/>
 {%- endif -%}
 </svg>
 {%- endmacro %}

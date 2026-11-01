@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_components/forms.html" import csrf_field, code_editor, button, link_button with context %}
-{% from "_components/ui.html" import alert, badge, difficulty_badge, toast %}
+{% from "_components/ui.html" import alert, badge, difficulty_badge, toast, loading_icon %}
 {% from "_components/icons.html" import icon %}
 {% from "student/s02_parts.html" import results_table, result_banner with context %}
 {% set problem = view.problem %}
@@ -86,7 +86,7 @@
       <section class="console" aria-labelledby="results-title">
         <div class="console-tabs"><strong>ผลการทดสอบ</strong></div>
         {% if view.pending %}
-          <div class="console-empty" data-state="S-02a">{{ icon("clock") }}<p id="results-title">Judging attempt {{ view.pending.attempt }}, {{ (view.samples | length) + view.hidden_count }} tests…</p><p>Submitted {{ view.pending.submitted_at | local }}. This page refreshes by itself; Run and Submit come back when judging is done.</p></div>
+          <div class="console-empty" data-state="S-02a">{{ loading_icon("judging") }}<p id="results-title">Judging attempt {{ view.pending.attempt }}, {{ (view.samples | length) + view.hidden_count }} tests…</p><p>Submitted {{ view.pending.submitted_at | local }}. This page refreshes by itself; Run and Submit come back when judging is done.</p></div>
         {% elif run %}
           {% call result_banner(run.results, "Results · Run (sample tests only) finished in " ~ "%.2f" | format(run.time_seconds) ~ "s", "Hidden tests run on Submit. A Run is not graded or kept.") %}{% endcall %}
           <div class="px-4 pb-4">{{ results_table(run.results, problem.assignment.settings.show_hidden_names) }}</div>

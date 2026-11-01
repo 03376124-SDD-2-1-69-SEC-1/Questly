@@ -20,6 +20,7 @@ TEACHER = "somchai.p@kmitl.ac.th"
 OTHER_TEACHER = "warunee.k@kmitl.ac.th"
 STUDENT = "66010001@kmitl.ac.th"
 OUTSIDER = "66010002@kmitl.ac.th"
+ADMIN = "admin@kmitl.ac.th"
 
 
 class Campus:
@@ -31,6 +32,7 @@ class Campus:
         student = seed_user(users, email=STUDENT, full_name="Nattapong")
         seed_user(users, email=OTHER_TEACHER, full_name="Warunee", role=Role.INSTRUCTOR)
         seed_user(users, email=OUTSIDER, full_name="Outsider")
+        seed_user(users, email=ADMIN, full_name="Admin", role=Role.ADMIN)
         catalog = FakeDocumentCatalog()
         catalog.by_owner[teacher.id] = [
             DocumentSummary(id=1, filename="lecture-06-searching.pdf", pages=24)

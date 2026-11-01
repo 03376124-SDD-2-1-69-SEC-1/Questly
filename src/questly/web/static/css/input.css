@@ -30,7 +30,7 @@
   --color-brand-400: #f472b6;
   --color-brand-300: #f9a8d4; /* hover border, dashed borders */
   --color-brand-200: #fbcfe8; /* tip panel border */
-  --color-brand-100: #fce7f3; /* focus ring, avatar bg, loading track */
+  --color-brand-100: #fce7f3; /* focus ring, avatar bg */
   --color-brand-50: #fdf2f8;  /* tinted icon wells, active nav, hover bg */
   --color-brand-25: #fffafb;  /* table/list row hover */
   --color-brand-row: #fff5fa; /* selected table row */
@@ -474,7 +474,11 @@
     border-color: var(--color-acc-ink);
     background: var(--color-acc-ink);
     color: #fff;
-    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn-primary:hover {
+      transform: translateY(-1px);
+    }
   }
   .btn-soft {
     border-color: transparent;
@@ -788,6 +792,18 @@
     }
     .toast-icon {
       animation: landing-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.2s both;
+    }
+  }
+  /* No fade with motion off, but it still has to leave: it sits over the S-02 links. */
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      animation: toast-hide 0s 6s forwards;
+    }
+  }
+  @keyframes toast-hide {
+    to {
+      opacity: 0;
+      visibility: hidden;
     }
   }
   @keyframes toast-in {
@@ -1265,7 +1281,11 @@
   .class-card:hover {
     border-color: var(--color-brand-300);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-3px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .class-card:hover {
+      transform: translateY(-3px);
+    }
   }
   .class-cover {
     display: flex;
@@ -1599,6 +1619,9 @@
     min-height: 100px;
     font-size: var(--text-xxs);
     color: var(--color-faint);
+  }
+  .console-empty .loading-icon {
+    margin-bottom: 8px;
   }
   .test-result {
     padding: 16px;
@@ -2703,6 +2726,49 @@
     from {
       opacity: 0;
       transform: translateX(-10px);
+    }
+  }
+
+  /* ---- Loading icons (loading_icon in ui.html; still under reduced motion) ----- */
+  .loading-icon svg {
+    transform-origin: center;
+  }
+  /* Every cycle starts at rest: T-03c and friends reload every 2 s and restart it. */
+  @media (prefers-reduced-motion: no-preference) {
+    .loading-icon[data-loading="generating"] svg {
+      animation: loading-twinkle 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="judging"] svg {
+      animation: loading-flip 1.6s ease-in-out infinite;
+    }
+    .loading-icon[data-loading="ingesting"] svg {
+      animation: loading-slide 1.4s ease-in-out infinite;
+    }
+    @keyframes loading-twinkle {
+      50% {
+        opacity: 0.55;
+        transform: scale(0.8) rotate(-15deg);
+      }
+    }
+    @keyframes loading-flip {
+      0%,
+      35% {
+        transform: rotate(0deg);
+      }
+      65%,
+      100% {
+        transform: rotate(180deg);
+      }
+    }
+    @keyframes loading-slide {
+      45% {
+        opacity: 0;
+        transform: translateX(7px);
+      }
+      50% {
+        opacity: 0;
+        transform: translateX(-7px);
+      }
     }
   }
 
