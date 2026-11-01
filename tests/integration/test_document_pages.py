@@ -18,6 +18,7 @@ from tests.integration.markup import loading_icons
 TEACHER = "somchai.p@kmitl.ac.th"
 OTHER_TEACHER = "warunee.p@kmitl.ac.th"
 STUDENT = "66010001@kmitl.ac.th"
+ADMIN = "admin@kmitl.ac.th"
 
 
 class World:
@@ -33,6 +34,7 @@ class World:
             role=Role.INSTRUCTOR,
         )
         seed_user(users, email=STUDENT, full_name="Nattapong Suwan")
+        seed_user(users, email=ADMIN, full_name="Admin", role=Role.ADMIN)
         self.repository = FakeKnowledgeDocumentRepository()
         self.app = build_app(
             auth_repository=users,
@@ -99,9 +101,12 @@ async def test_t06_moves_only_the_document_that_is_ingesting(world: World) -> No
     still = await (await _client(world)).get("/documents")
     world.document(world.teacher, "processing.pdf", DocumentStatus.INGESTING)
     moving = await (await _client(world)).get("/documents")
-    refused = await (await _client(world, STUDENT)).get("/documents")
+    refused = [
+        await (await _client(world, who)).get("/documents") for who in (STUDENT, ADMIN)
+    ]
 
-    assert refused.status_code == 403 and loading_icons(refused.text) == []
+    assert [page.status_code for page in refused] == [403, 403]
+    assert [loading_icons(page.text) for page in refused] == [[], []]
     assert still.status_code == 200 and "failed.pdf" in still.text
     assert loading_icons(still.text) == []
     assert moving.status_code == 200
