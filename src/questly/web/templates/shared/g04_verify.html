@@ -15,15 +15,15 @@
       <h1>ยืนยันอีเมลของคุณ</h1>
       {% set on_screen = link.display == "onscreen" %}
       {% if not delivery_failed %}
-      <p class="text-mid">เราได้ส่งลิงก์ยืนยัน{% if email %}ไปที่<br><strong class="text-ink">{{ email }}</strong>{% endif %}</p>
+      <p class="text-mid">เราได้ส่งลิงก์ยืนยัน{% if email %}ไปที่<br><strong class="text-ink"><!--email_off-->{{ email }}<!--/email_off--></strong>{% endif %}</p>
       {% elif on_screen %}
-      <p class="text-mid"><strong class="text-ink">{{ email }}</strong></p>
+      <p class="text-mid"><strong class="text-ink"><!--email_off-->{{ email }}<!--/email_off--></strong></p>
       {% else %}
-      {% call alert(tone="warn", state="delivery-failed") %}<span>ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong>{{ email }}</strong>{% endif %}<br>บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่</span>{% endcall %}
+      {% call alert(tone="warn", state="delivery-failed") %}<span>ส่งอีเมลยืนยันไม่สำเร็จ{% if email %}ไปที่ <strong><!--email_off-->{{ email }}<!--/email_off--></strong>{% endif %}<br>บัญชีของคุณถูกสร้างแล้ว กด “ส่งอีเมลอีกครั้ง” เพื่อลองใหม่</span>{% endcall %}
       {% endif %}
       {% if on_screen %}
       <div class="flex w-full flex-col gap-3 text-center" data-state="G-04a-onscreen">
-        <p class="text-ui text-mid">ระบบอีเมลของมหาวิทยาลัยกรองอีเมลจากเรา กดปุ่มนี้เพื่อยืนยันได้เลย</p>
+        {% call alert(tone="warn") %}<span>ไม่ได้รับอีเมลใช่ไหม? กดปุ่มนี้เพื่อยืนยันได้เลย!</span>{% endcall %}
         {{ link_button(link.url, "ยืนยันอีเมล", variant="primary", block=true) }}
       </div>
       {% endif %}
@@ -57,7 +57,7 @@
     <form method="post" action="/verify/resend" class="flex w-full flex-col gap-3 text-left">
       {{ csrf_field() }}
       {% if email %}
-        {{ hidden("email", email) }}
+        <!--email_off-->{{ hidden("email", email) }}<!--/email_off-->
         <div class="text-center">{{ button("ส่งอีเมลอีกครั้ง" if state == "waiting" else "Send a new link", variant="primary" if state == "expired" else "secondary") }}</div>
       {% else %}
         {{ field("email", "อีเมล", type="email", placeholder="name@example.com", required=true) }}

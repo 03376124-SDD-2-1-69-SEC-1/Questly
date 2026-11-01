@@ -60,6 +60,17 @@ address with an emailed link. Two things now break that.
    A domain not in the list never gets an on-screen link. The one exception
    is unchanged from OPS-37: with the stub sender outside production, G-04a
    shows the demo link (`data-state="demo-link"`).
+
+   Amended by OPS-47 (2026-11-01): the value `*` matches every email domain,
+   so every unverified sign-up gets the G-04a button and the `/verify/resend`
+   page shows the fresh link the same way. An empty value still means no
+   on-screen links. The G-04a line above the button reads
+   `ไม่ได้รับอีเมลใช่ไหม? กดปุ่มนี้เพื่อยืนยันได้เลย!`.
+   The email shown on G-04 is wrapped in `<!--email_off-->`, so Cloudflare's
+   email obfuscation does not turn it into `[email protected]`; the CSP
+   blocks scripts, so the address would never be restored. The rest of this
+   ADR describes the listed-domain mode (for example `kmitl.ac.th`); `*`
+   behaves the same way for every domain.
 5. **One mechanism.** The OPS-37 demo link and the on-screen link share the
    same code. `AuthService` takes the on-screen domains and the stub flag,
    keeps a link in memory when either applies, and the page reads it through
@@ -71,7 +82,8 @@ address with an emailed link. Two things now break that.
 ## Consequences
 
 - A KMITL Student can sign up and verify while KMITL filters our mail, as
-  long as `ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th` is set.
+  long as `ONSCREEN_VERIFY_DOMAINS=kmitl.ac.th` is set. With `ONSCREEN_VERIFY_DOMAINS=*`
+  (OPS-47) every Student, KMITL or external, verifies on screen.
 - People outside KMITL can join Classrooms as Students. Instructors still
   come only from KMITL addresses through an Admin-approved request.
 - The links are kept in process memory. After a restart, or on a second
@@ -102,3 +114,14 @@ account.
 
 Remove the domain from `ONSCREEN_VERIFY_DOMAINS` once KMITL delivers our
 mail. Accounts already verified stay verified.
+
+With `ONSCREEN_VERIFY_DOMAINS=*` (OPS-47) the same holds for every domain:
+on-screen verification no longer proves mailbox ownership for any address.
+Anyone who knows `victim@gmail.com` can register it and verify it
+instantly. The real owner then meets `already_registered`, and there is
+still no password reset to take the address back. The resend page tells a
+visitor whether any unverified account exists for an address. An Instructor
+request still needs an Admin's approval, and the Admin must not treat the
+email as proof of identity. The user accepted this risk explicitly. Kill
+switch: empty `ONSCREEN_VERIFY_DOMAINS` and restart the app; accounts already
+verified stay verified.
