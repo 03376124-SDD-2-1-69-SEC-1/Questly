@@ -3259,7 +3259,7 @@
     display: block;
     width: 18px;
     height: 18px;
-    border: 2px solid var(--color-brand-100);
+    border: 2px solid var(--color-brand-300);
     border-top-color: var(--color-acc);
     border-radius: 50%;
   }

@@ -37,7 +37,7 @@ Result key: **matches** = same layout and components as Figma; **adapted** = Fig
 - Thai copy is used for headings, labels and primary buttons. Strings that tests assert on, and status badge labels (`Passed`, `Resubmit needed`, ...), stay English.
 - Tests updated for changed copy: `test_drafts.py` (publish button text, row text), `test_problem_pages.py` (T-01 row text). Data assertions are untouched.
 - `core/classrooms/pages.py` passes `summary` to the Problems tab so the stats strip uses real numbers. No other Python changed.
-- Loading icons (FE-12): `loading_icon(kind)` in `_components/ui.html`, CSS only, keyframes inside `prefers-reduced-motion: no-preference`. Generating twinkles `sparkles`, ingesting slides `file`, generic spins a ring after the Figma `.spinner`. Judging flips an `hourglass` icon that is **not in Figma**; it was added to `_components/icons.html` because no Figma icon reads as "waiting for a result".
+- Loading icons (FE-12): `loading_icon(kind)` in `_components/ui.html`, CSS only, keyframes inside `prefers-reduced-motion: no-preference`. Generating twinkles `sparkles`, ingesting slides `file`, generic spins a pink arc after the Figma `.spinner`. Judging flips an `hourglass` icon that is **not in Figma**; it was added to `_components/icons.html` because no Figma icon reads as "waiting for a result".
 - Tailwind generates utilities from every `--container-*` and `--spacing-*` token, so layout helper classes are named `.settings-wrap` and `.review-wrap` to avoid colliding with `w-settings` and `w-review`.
 
 ## Open items

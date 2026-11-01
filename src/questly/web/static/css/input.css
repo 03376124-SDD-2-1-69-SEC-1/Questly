@@ -30,7 +30,7 @@
   --color-brand-400: #f472b6;
   --color-brand-300: #f9a8d4; /* hover border, dashed borders */
   --color-brand-200: #fbcfe8; /* tip panel border */
-  --color-brand-100: #fce7f3; /* focus ring, avatar bg, loading track */
+  --color-brand-100: #fce7f3; /* focus ring, avatar bg */
   --color-brand-50: #fdf2f8;  /* tinted icon wells, active nav, hover bg */
   --color-brand-25: #fffafb;  /* table/list row hover */
   --color-brand-row: #fff5fa; /* selected table row */
@@ -2714,7 +2714,7 @@
     display: block;
     width: 18px;
     height: 18px;
-    border: 2px solid var(--color-brand-100);
+    border: 2px solid var(--color-brand-300);
     border-top-color: var(--color-acc);
     border-radius: 50%;
   }
