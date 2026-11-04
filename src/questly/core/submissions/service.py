@@ -62,13 +62,13 @@ LEASE = timedelta(seconds=90)
 GIVE_UP = timedelta(minutes=15)
 
 
+def normalise_output(text: str) -> str:
+    """Drop trailing spaces on each line and trailing blank lines."""
+    return "\n".join(line.rstrip() for line in text.rstrip().splitlines())
+
+
 def outputs_match(expected: str, actual: str) -> bool:
-    """Equal after dropping trailing spaces on each line and trailing blank lines."""
-
-    def normalise(text: str) -> list[str]:
-        return [line.rstrip() for line in text.rstrip().splitlines()]
-
-    return normalise(expected) == normalise(actual)
+    return normalise_output(expected) == normalise_output(actual)
 
 
 def judge(test_case: TestCase, execution: Execution) -> Verdict:

@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Characterisation tests through `build_app` pin the current statuses, codes and messages of the assignments JSON routes (unknown Assignment, not-visible, rule violation as 422) and pass on the current code before migration.
-- [ ] The shared module is the only place that builds the `{code, message}` detail and exposes: register a slice's error table, and run a use case under that mapping.
-- [ ] The assignments routes use it and their two private helpers are deleted.
-- [ ] The characterisation tests are unchanged and green after migration. A needed test change means a behaviour change and is out of scope.
-- [ ] Page handlers (HTML) are untouched.
-- [ ] A row for this ticket exists in the task-scope table before work starts.
+- [x] Characterisation tests through `build_app` pin the current statuses, codes and messages of the assignments JSON routes (unknown Assignment, not-visible, rule violation as 422) and pass on the current code before migration.
+- [x] The shared module is the only place that builds the `{code, message}` detail and exposes: register a slice's error table, and run a use case under that mapping.
+- [x] The assignments routes use it and their two private helpers are deleted.
+- [x] The characterisation tests are unchanged and green after migration. A needed test change means a behaviour change and is out of scope.
+- [x] Page handlers (HTML) are untouched.
+- [x] A row for this ticket exists in the task-scope table before work starts.
