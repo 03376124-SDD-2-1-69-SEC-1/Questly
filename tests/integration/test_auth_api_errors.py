@@ -41,6 +41,9 @@ def assert_error(response: Response, status: int, code: str, message: str) -> No
 
 
 class ProviderDown:
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         raise EmailDeliveryError("provider unreachable")
 
@@ -93,9 +96,7 @@ class ProviderDown:
         ),
     ],
 )
-async def test_sign_up_errors(
-    body: dict, status: int, code: str, message: str
-) -> None:
+async def test_sign_up_errors(body: dict, status: int, code: str, message: str) -> None:
     async with _client(build_app()) as client:
         response = await client.post(SIGN_UP_PATH, json=body)
 
@@ -145,9 +146,7 @@ async def test_resend_is_503_when_the_email_cannot_be_sent() -> None:
             "/api/v1/auth/verify/resend", json={"email": "u@kmitl.ac.th"}
         )
 
-    assert_error(
-        response, 503, "email_delivery_failed", "The email could not be sent"
-    )
+    assert_error(response, 503, "email_delivery_failed", "The email could not be sent")
 
 
 @pytest.mark.anyio
@@ -221,7 +220,9 @@ async def test_instructor_request_errors() -> None:
         external = await client.post(INSTRUCTOR_REQUESTS, json={"faculty": "Science"})
 
     assert_error(blank, 422, "faculty_required", "Faculty is required")
-    assert_error(again, 409, "instructor_request_exists", "A request is already pending")
+    assert_error(
+        again, 409, "instructor_request_exists", "A request is already pending"
+    )
     assert_error(
         external,
         422,

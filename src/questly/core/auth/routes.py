@@ -53,7 +53,9 @@ SIGN_UP_ERRORS = ErrorTable(
         UseKmitlOptionError: ErrorRule(
             422, "use_kmitl_option", "Sign up an @kmitl.ac.th address as KMITL"
         ),
-        InvalidEmailError: ErrorRule(422, "invalid_email", "Enter a valid email address"),
+        InvalidEmailError: ErrorRule(
+            422, "invalid_email", "Enter a valid email address"
+        ),
         ExternalCannotRequestInstructorError: _EXTERNAL_CANNOT_REQUEST,
         PasswordTooShortError: ErrorRule(
             422, "password_too_short", "Password must be at least 8 characters"

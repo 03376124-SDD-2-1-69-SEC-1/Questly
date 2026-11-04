@@ -452,9 +452,7 @@ def create_app(
             use_session_factory(),
             generation_available=(
                 bool(use_settings().openrouter_api_key)
-                or (
-                    generation_client is not None and generation_client.is_available()
-                )
+                or (generation_client is not None and generation_client.is_available())
             ),
             sandbox_available=code_runner.is_available(),
             email_available=email_sender.is_available(),

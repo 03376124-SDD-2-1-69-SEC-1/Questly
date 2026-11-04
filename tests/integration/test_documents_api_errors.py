@@ -77,9 +77,7 @@ async def test_unknown_or_foreign_document_is_404_on_get_delete_and_retry() -> N
 async def test_upload_over_the_size_limit_is_413() -> None:
     users = FakeAuthRepository()
     seed_user(users, email=INSTRUCTOR, full_name="Instructor", role=Role.INSTRUCTOR)
-    instructor = await _login(
-        build_app(auth_repository=users, max_upload_size_bytes=4)
-    )
+    instructor = await _login(build_app(auth_repository=users, max_upload_size_bytes=4))
 
     response = await instructor.post(
         "/api/v1/documents", files={"file": ("notes.txt", b"12345")}

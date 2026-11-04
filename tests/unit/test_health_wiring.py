@@ -60,7 +60,10 @@ def _settings(**override: object) -> Settings:
     ],
 )
 def test_sandbox_flag_follows_the_runner(
-    flags: Flags, injected: dict[str, object], settings: dict[str, object], expected: bool
+    flags: Flags,
+    injected: dict[str, object],
+    settings: dict[str, object],
+    expected: bool,
 ) -> None:
     _build(flags, _settings(**settings), **injected)
 

@@ -922,7 +922,6 @@ def test_grounding_accepts_exactly_what_the_judge_accepts(stdout: str) -> None:
     assert (failure == "") == outputs_match("5", stdout)
 
 
-
 def test_stub_runner_skips_sample_check_instead_of_failing_every_draft() -> None:
     runner = StubCodeRunner()
     client = _make_client(

@@ -64,7 +64,9 @@ async def test_unknown_user_is_404_on_role_change_and_deactivate() -> None:
     ]
 
     assert [r.status_code for r in responses] == [404] * 2
-    assert [r.json() for r in responses] == [error("user_not_found", "User not found")] * 2
+    assert [r.json() for r in responses] == [
+        error("user_not_found", "User not found")
+    ] * 2
 
 
 @pytest.mark.anyio
@@ -76,7 +78,9 @@ async def test_an_admin_cannot_change_or_deactivate_themselves() -> None:
     deactivate = await client.post(f"{USERS}/{api.admin.id}/deactivate")
 
     assert demote.status_code == 400
-    assert demote.json() == error("self_modification", "Cannot demote your own admin role")
+    assert demote.json() == error(
+        "self_modification", "Cannot demote your own admin role"
+    )
     assert deactivate.status_code == 400
     assert deactivate.json() == error(
         "self_modification", "Cannot deactivate your own admin account"
