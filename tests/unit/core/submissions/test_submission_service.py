@@ -192,6 +192,22 @@ def test_outputs_match_ignores_trailing_whitespace_only() -> None:
     assert not outputs_match("1 2", "1  2")
 
 
+@pytest.mark.parametrize(
+    ("expected", "actual", "matches"),
+    [
+        ("a", "a   ", True),
+        ("a\nb", "a  \nb\t", True),
+        ("a", "a\n\n\n", True),
+        ("a  b", "a b", False),
+        ("a\n\nb", "a\nb", False),
+        ("", "", True),
+        ("", "\n \n", True),
+    ],
+)
+def test_outputs_match_cases(expected: str, actual: str, matches: bool) -> None:
+    assert outputs_match(expected, actual) is matches
+
+
 def test_judge_maps_runner_status_before_comparing() -> None:
     case = TestCase(input_data="", expected_output="x")
     assert judge(case, Execution(ExecutionStatus.OK, "x\n", "", 0)) is Verdict.PASSED
