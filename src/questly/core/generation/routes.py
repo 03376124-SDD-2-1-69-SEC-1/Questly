@@ -4,11 +4,7 @@
 `router`: /api/v1/drafts/{id} (GET, PATCH, DELETE, /regenerate, /publish).
 """
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import NoReturn
-
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from questly.core.assignments.models import JudgingSettings, TestCase
 from questly.core.auth.current import current_actor
@@ -33,6 +29,7 @@ from questly.core.generation.service import (
     MissingFieldsError,
     QuotaExceededError,
 )
+from questly.core.http_errors import ErrorRule, ErrorTable
 
 router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
 classroom_router = APIRouter(prefix="/api/v1/classrooms", tags=["drafts"])
@@ -42,30 +39,27 @@ def generation_service(request: Request) -> GenerationService:
     return request.app.state.generation_service
 
 
-def _fail(status_code: int, code: str, message: str) -> NoReturn:
-    raise HTTPException(
-        status_code=status_code, detail={"code": code, "message": message}
-    )
-
-
-@contextmanager
-def draft_errors() -> Iterator[None]:
-    try:
-        yield
-    except DraftNotFoundError:
-        _fail(404, "draft_not_found", "Draft not found")
-    except ClassroomNotVisibleError:
-        _fail(404, "classroom_not_found", "Classroom not found")
-    except DocumentNotAllowedError:
-        _fail(422, "document_not_allowed", "Choose documents from your library")
-    except QuotaExceededError:
-        _fail(429, "quota_exceeded", "No generations left today")
-    except GenerationFailedError:
-        _fail(502, "generation_failed", "The model did not respond; no quota used")
-    except MissingFieldsError as error:
-        _fail(422, "missing_fields", f"Fill in: {error}")
-    except ValueError as error:
-        _fail(422, "invalid_draft", str(error))
+DRAFT_ERRORS = ErrorTable(
+    {
+        DraftNotFoundError: ErrorRule(404, "draft_not_found", "Draft not found"),
+        ClassroomNotVisibleError: ErrorRule(
+            404, "classroom_not_found", "Classroom not found"
+        ),
+        DocumentNotAllowedError: ErrorRule(
+            422, "document_not_allowed", "Choose documents from your library"
+        ),
+        QuotaExceededError: ErrorRule(
+            429, "quota_exceeded", "No generations left today"
+        ),
+        GenerationFailedError: ErrorRule(
+            502, "generation_failed", "The model did not respond; no quota used"
+        ),
+        MissingFieldsError: ErrorRule(
+            422, "missing_fields", lambda error: f"Fill in: {error}"
+        ),
+        ValueError: ErrorRule(422, "invalid_draft", str),
+    }
+)
 
 
 def draft_response(draft: Draft) -> DraftResponse:
@@ -117,7 +111,7 @@ def generate(
     request: Request, classroom_id: int, payload: DraftCreate
 ) -> DraftResponse:
     """T-03: generate a Draft in this Classroom (synchronous; counts one quota)."""
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         draft = generation_service(request).generate(
             current_actor(request),
             classroom_id,
@@ -132,7 +126,7 @@ def generate(
 @classroom_router.get("/{classroom_id}/drafts", response_model=list[DraftResponse])
 def list_drafts(request: Request, classroom_id: int) -> list[DraftResponse]:
     """T-01 Drafts: the caller's unpublished Drafts in this Classroom."""
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         drafts = generation_service(request).drafts(
             current_actor(request), classroom_id
         )
@@ -141,7 +135,7 @@ def list_drafts(request: Request, classroom_id: int) -> list[DraftResponse]:
 
 @router.get("/{draft_id}", response_model=DraftResponse)
 def get_draft(request: Request, draft_id: int) -> DraftResponse:
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         draft = generation_service(request).draft(current_actor(request), draft_id)
     return draft_response(draft)
 
@@ -151,7 +145,7 @@ def save_draft(request: Request, draft_id: int, payload: DraftPatch) -> DraftRes
     """Save one T-04 step."""
     actor = current_actor(request)
     service = generation_service(request)
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         current = service.draft(actor, draft_id)
         judging = current.content.settings
         settings = current.settings
@@ -211,7 +205,7 @@ def save_draft(request: Request, draft_id: int, payload: DraftPatch) -> DraftRes
 
 @router.delete("/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
 def discard_draft(request: Request, draft_id: int) -> Response:
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         generation_service(request).discard(current_actor(request), draft_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -221,7 +215,7 @@ def regenerate(
     request: Request, draft_id: int, payload: RegenerateRequest
 ) -> DraftResponse:
     """T-03a "Regenerate this part"; a success counts one quota."""
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         draft = generation_service(request).regenerate(
             current_actor(request), draft_id, DraftPart(payload.part)
         )
@@ -235,7 +229,7 @@ def publish(
     """T-04 step 4 "Approve and publish"."""
     actor = current_actor(request)
     service = generation_service(request)
-    with draft_errors():
+    with DRAFT_ERRORS.translate():
         if payload.classroom_ids is not None:
             service.save(actor, draft_id, classroom_ids=payload.classroom_ids)
         published = service.publish(actor, draft_id)
