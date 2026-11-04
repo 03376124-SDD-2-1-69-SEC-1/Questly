@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The shared builder exists and the five modules (production wiring, admin pages, classroom exports, instructor pages, submit recovery on Postgres) use it.
-- [ ] Each module keeps its current assertions; none is weakened or deleted to make the refactor fit.
+- [x] The shared builder exists and the five modules (production wiring, admin pages, classroom exports, instructor pages, submit recovery on Postgres) use it.
+- [x] Each module keeps its current assertions; none is weakened or deleted to make the refactor fit.
 - [ ] The full suite passes, including the architecture tests.
-- [ ] No production module changes.
-- [ ] A row for this ticket exists in the task-scope table before work starts.
+- [x] No production module changes.
+- [x] A row for this ticket exists in the task-scope table before work starts.

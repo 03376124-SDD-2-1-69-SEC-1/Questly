@@ -30,11 +30,9 @@ from questly.database.core.draft_repository import SQLDraftRepository
 from questly.database.core.tables import User as UserRow
 from questly.database.session import SessionFactory
 from questly.integrations.email import StubEmailSender
-from questly.main import create_app
-from tests.fakes.app import fake_settings
+from tests.fakes.app import build_postgres_app, fake_settings
 from tests.fakes.auth import verification_path
 from tests.fakes.documents import FakeObjectStorage
-from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import asgi_client, log_in
 
 pytestmark = pytest.mark.postgres
@@ -45,12 +43,7 @@ def test_sign_up_verify_and_log_in_write_to_postgres(
     postgres_url: str, session_factory: SessionFactory
 ) -> None:
     mailer = StubEmailSender()
-    app = create_app(
-        settings=replace(fake_settings(), database_url=postgres_url),
-        email_sender=mailer,
-        object_storage=FakeObjectStorage(),
-        vector_repository=FakeVectorRepository(),
-    )
+    app = build_postgres_app(postgres_url, verification_mailer=mailer)
     auth = app.state.auth_service
 
     auth.sign_up(
@@ -97,12 +90,7 @@ def test_publishing_stores_a_notification_per_member_in_postgres(
     postgres_url: str, session_factory: SessionFactory
 ) -> None:
     mailer = StubEmailSender()
-    app = create_app(
-        settings=replace(fake_settings(), database_url=postgres_url),
-        email_sender=mailer,
-        object_storage=FakeObjectStorage(),
-        vector_repository=FakeVectorRepository(),
-    )
+    app = build_postgres_app(postgres_url, verification_mailer=mailer)
     teacher = _account(session_factory, "somchai.p@kmitl.ac.th", Role.INSTRUCTOR)
     student = _account(session_factory, "66010001@kmitl.ac.th", Role.STUDENT)
     classrooms = app.state.classroom_service
@@ -173,11 +161,7 @@ def test_admin_services_persist_settings_and_generation_reads_quota(
     request = auth_repository.create_instructor_request(
         InstructorRequest(applicant.id, "Engineering", datetime.now(UTC))
     )
-    app = create_app(
-        settings=replace(fake_settings(), database_url=postgres_url),
-        object_storage=FakeObjectStorage(),
-        vector_repository=FakeVectorRepository(),
-    )
+    app = build_postgres_app(postgres_url)
     admin_actor = Actor(
         user_id=admin.id,
         role=Role.ADMIN,
@@ -254,15 +238,13 @@ def test_admin_model_change_reaches_the_generation_client(
             email_verified=True,
         )
     )
-    app = create_app(
+    app = build_postgres_app(
+        postgres_url,
         settings=replace(
             fake_settings(),
-            database_url=postgres_url,
             openrouter_api_key="not-a-real-key",
             generation_model_allowlist=(original_settings.model, "chosen/by-admin"),
         ),
-        object_storage=FakeObjectStorage(),
-        vector_repository=FakeVectorRepository(),
     )
     admin_actor = Actor(admin.id, Role.ADMIN, admin.full_name, admin.email)
     instructor = Actor(teacher.id, Role.INSTRUCTOR, teacher.full_name, teacher.email)
@@ -308,12 +290,10 @@ async def test_uploading_a_document_records_the_logged_in_uploader_in_postgres(
     postgres_url: str, session_factory: SessionFactory
 ) -> None:
     storage = FakeObjectStorage()
-    app = create_app(
-        settings=replace(fake_settings(), database_url=postgres_url),
-        email_sender=StubEmailSender(),
+    app = build_postgres_app(
+        postgres_url,
+        verification_mailer=StubEmailSender(),
         object_storage=storage,
-        vector_repository=FakeVectorRepository(),
-        secure_cookies=False,
     )
     SQLAuthRepository(session_factory).create_user(
         User(
