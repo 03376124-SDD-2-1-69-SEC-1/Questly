@@ -5,7 +5,6 @@ vector store swapped out) and pointed at the throwaway branch, so the role
 change below went through `SQLAuthRepository` and not a fake.
 """
 
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -15,10 +14,7 @@ from questly.core.auth.models import InstructorRequest, Role, User
 from questly.core.auth.service import hash_password
 from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
-from questly.main import create_app
-from tests.fakes.app import fake_settings
-from tests.fakes.documents import FakeObjectStorage
-from tests.fakes.vector import FakeVectorRepository
+from tests.fakes.app import build_postgres_app
 from tests.integration.forms import asgi_client, log_in, post_form
 
 pytestmark = pytest.mark.postgres
@@ -50,12 +46,7 @@ async def test_approving_a_request_on_a1_makes_the_applicant_an_instructor(
     pending = auth.create_instructor_request(
         InstructorRequest(applicant.id, "Information Technology", datetime.now(UTC))
     )
-    app = create_app(
-        settings=replace(fake_settings(), database_url=postgres_url),
-        object_storage=FakeObjectStorage(),
-        vector_repository=FakeVectorRepository(),
-        secure_cookies=False,
-    )
+    app = build_postgres_app(postgres_url)
 
     async with asgi_client(app) as client:
         await log_in(client, "admin@kmitl.ac.th", "admin-pass")

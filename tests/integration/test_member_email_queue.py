@@ -22,12 +22,18 @@ class StuckProvider:
         self.release = threading.Event()
         self.delivered: list[str] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         assert self.release.wait(timeout=5)
         self.delivered.append(f"{to} {subject}")
 
 
 class RefusingProvider:
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         raise EmailDeliveryError("provider unreachable")
 

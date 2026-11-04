@@ -225,6 +225,9 @@ class StubGenerationClient:
     def __init__(self, step_delay_seconds: float = 0.0) -> None:
         self._step_delay_seconds = step_delay_seconds
 
+    def is_available(self) -> bool:
+        return False
+
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]
     ) -> GenerationResponse:
@@ -269,11 +272,15 @@ class OpenRouterGenerationClient:
         # Read on every generate(), so the model an Admin picks on A-01 is
         # used from the next call on.
         self._model = model
+        self._configured = bool(api_key)
         self._code_runner = code_runner
         self._retriever = retriever
         self._client = OpenRouter(
             api_key=api_key, timeout_ms=_TIMEOUT_MS, retry_config=_RETRY
         )
+
+    def is_available(self) -> bool:
+        return self._configured
 
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]

@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Characterisation tests through `build_app` pin today's submissions error statuses, codes and messages, including the not-visible-to-404 mapping, and pass on the current code before migration.
-- [ ] The submissions routes register their error table with the shared module; their private helpers are deleted.
-- [ ] The characterisation tests are unchanged and green after migration.
-- [ ] Where the submissions and assignments maps overlap, neither slice's result changes.
-- [ ] A row for this ticket exists in the task-scope table before work starts.
+- [x] Characterisation tests through `build_app` pin today's submissions error statuses, codes and messages, including the not-visible-to-404 mapping, and pass on the current code before migration.
+- [x] The submissions routes register their error table with the shared module; their private helpers are deleted.
+- [x] The characterisation tests are unchanged and green after migration.
+- [x] Where the submissions and assignments maps overlap, neither slice's result changes.
+- [x] A row for this ticket exists in the task-scope table before work starts.

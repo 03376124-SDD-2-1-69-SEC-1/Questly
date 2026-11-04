@@ -68,6 +68,10 @@ class EmailDeliveryError(Exception):
 class EmailSender(Protocol):
     """Port for sending email without coupling Core to an email provider."""
 
+    def is_available(self) -> bool:
+        """Whether this sender really delivers (a stub does not); no network call."""
+        ...
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         """Send an email message.
 
