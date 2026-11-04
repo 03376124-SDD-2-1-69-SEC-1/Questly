@@ -6,7 +6,6 @@ throwaway branch. The Instructor logs in over HTTP and posts the T-05 form, so
 the rows asserted below were written by the SQL adapters.
 """
 
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -23,10 +22,7 @@ from questly.core.auth.models import Actor, Role, User
 from questly.core.auth.service import hash_password
 from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
-from questly.main import create_app
-from tests.fakes.app import fake_settings
-from tests.fakes.documents import FakeObjectStorage
-from tests.fakes.vector import FakeVectorRepository
+from tests.fakes.app import build_postgres_app
 from tests.integration.forms import asgi_client, log_in, post_form
 
 pytestmark = pytest.mark.postgres
@@ -41,12 +37,7 @@ class World:
 
     def __init__(self, postgres_url: str, session_factory: SessionFactory) -> None:
         self.session_factory = session_factory
-        self.app = create_app(
-            settings=replace(fake_settings(), database_url=postgres_url),
-            object_storage=FakeObjectStorage(),
-            vector_repository=FakeVectorRepository(),
-            secure_cookies=False,
-        )
+        self.app = build_postgres_app(postgres_url)
         users = SQLAuthRepository(session_factory)
 
         def account(email: str, name: str, role: Role) -> Actor:

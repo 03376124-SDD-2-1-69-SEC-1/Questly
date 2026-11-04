@@ -8,7 +8,6 @@ over the same database.
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from datetime import timedelta
 
 import anyio.from_thread
@@ -30,12 +29,9 @@ from questly.core.submissions.models import BatchResult
 from questly.core.submissions.service import LEASE
 from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
-from questly.main import create_app
-from tests.fakes.app import fake_settings
+from tests.fakes.app import build_postgres_app
 from tests.fakes.auth import DEFAULT_NOW, FakeClock
-from tests.fakes.documents import FakeObjectStorage
 from tests.fakes.submissions import RunnerBackend, ScriptedCodeRunner
-from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import asgi_client, log_in
 
 pytestmark = pytest.mark.postgres
@@ -160,13 +156,8 @@ class World:
 
     def restart(self, runner: ScriptedCodeRunner) -> FastAPI:
         """A fresh process over the same database, clock and runner."""
-        return create_app(
-            settings=replace(fake_settings(), database_url=self.postgres_url),
-            object_storage=FakeObjectStorage(),
-            vector_repository=FakeVectorRepository(),
-            clock=self.clock,
-            code_runner=runner,
-            secure_cookies=False,
+        return build_postgres_app(
+            self.postgres_url, clock=self.clock, code_runner=runner
         )
 
     async def client(self, actor: Actor, app: FastAPI | None = None):
