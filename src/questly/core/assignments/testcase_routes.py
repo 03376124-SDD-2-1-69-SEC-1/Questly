@@ -10,8 +10,8 @@ from fastapi import APIRouter, Query, Request, Response, status
 
 from questly.core.assignments.models import TestCase
 from questly.core.assignments.routes import (
+    ASSIGNMENT_ERRORS,
     assignment_service,
-    domain_errors,
     test_case_response,
 )
 from questly.core.assignments.schemas import TestCaseResponse, TestCaseWrite
@@ -33,7 +33,7 @@ def _domain(payload: TestCaseWrite) -> TestCase:
 
 @router.get("", response_model=list[TestCaseResponse])
 def list_test_cases(request: Request, assignment_id: int) -> list[TestCaseResponse]:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         test_cases = assignment_service(request).test_cases(
             current_actor(request), assignment_id
         )
@@ -44,7 +44,7 @@ def list_test_cases(request: Request, assignment_id: int) -> list[TestCaseRespon
 def get_test_case(
     request: Request, assignment_id: int, test_case_id: int
 ) -> TestCaseResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         test_case = assignment_service(request).test_case(
             current_actor(request), assignment_id, test_case_id
         )
@@ -55,7 +55,7 @@ def get_test_case(
 def add_test_case(
     request: Request, assignment_id: int, payload: TestCaseWrite
 ) -> TestCaseResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         test_case = assignment_service(request).add_test_case(
             current_actor(request),
             assignment_id,
@@ -69,7 +69,7 @@ def add_test_case(
 def replace_test_case(
     request: Request, assignment_id: int, test_case_id: int, payload: TestCaseWrite
 ) -> TestCaseResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         test_case = assignment_service(request).replace_test_case(
             current_actor(request),
             assignment_id,
@@ -87,7 +87,7 @@ def delete_test_case(
     test_case_id: int,
     reason: Annotated[str, Query(min_length=1, max_length=500)],
 ) -> Response:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         assignment_service(request).delete_test_case(
             current_actor(request), assignment_id, test_case_id, reason=reason
         )
