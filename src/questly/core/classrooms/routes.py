@@ -1,8 +1,6 @@
 """FastAPI adapter for /api/v1/classrooms."""
 
-from typing import NoReturn
-
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from questly.core.auth.current import current_actor
 from questly.core.classrooms.models import (
@@ -30,8 +28,23 @@ from questly.core.classrooms.service import (
     InvalidJoinCodeError,
     MemberNotFoundError,
 )
+from questly.core.http_errors import ErrorRule, ErrorTable
 
 router = APIRouter(prefix="/api/v1/classrooms", tags=["classrooms"])
+
+CLASSROOM_ERRORS = ErrorTable(
+    {
+        ClassroomNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "classroom_not_found", "Classroom not found"
+        ),
+        InvalidJoinCodeError: ErrorRule(
+            422, "invalid_join_code", "No classroom has this code"
+        ),
+        MemberNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "member_not_found", "Not a member"
+        ),
+    }
+)
 
 
 def classroom_service(request: Request) -> ClassroomService:
@@ -57,13 +70,6 @@ def _member(view: MemberView) -> MemberResponse:
         email=view.email,
         student_number=view.student_number,
         joined_at=view.joined_at,
-    )
-
-
-def _not_found() -> NoReturn:
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail={"code": "classroom_not_found", "message": "Classroom not found"},
     )
 
 
@@ -125,28 +131,18 @@ def create(request: Request, payload: ClassroomCreate) -> ClassroomResponse:
 @router.post("/join", response_model=ClassroomResponse)
 def join(request: Request, payload: JoinRequest) -> ClassroomResponse:
     """C-02: join with a 6-character code."""
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).join(
             current_actor(request), payload.join_code
         )
-    except InvalidJoinCodeError:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "invalid_join_code",
-                "message": "No classroom has this code",
-            },
-        ) from None
     return _response(classroom, show_join_code=False)
 
 
 @router.get("/{classroom_id}", response_model=ClassroomResponse)
 def get(request: Request, classroom_id: int) -> ClassroomResponse:
     """One Classroom; the Join code is shown to its Instructor only."""
-    try:
+    with CLASSROOM_ERRORS.translate():
         view = classroom_service(request).view(current_actor(request), classroom_id)
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(
         view.classroom, show_join_code=isinstance(view, InstructorClassroomView)
     )
@@ -158,7 +154,7 @@ def update(
 ) -> ClassroomResponse:
     """T-01 Classroom settings."""
     fields_set = payload.model_fields_set
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).update(
             current_actor(request),
             classroom_id,
@@ -167,63 +163,51 @@ def update(
             section=payload.section if "section" in fields_set else UNSET,
             semester=payload.semester if "semester" in fields_set else UNSET,
         )
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(classroom, show_join_code=True)
 
 
 @router.post("/{classroom_id}/archive", response_model=ClassroomResponse)
 def archive(request: Request, classroom_id: int) -> ClassroomResponse:
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).archive(
             current_actor(request), classroom_id
         )
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(classroom, show_join_code=True)
 
 
 @router.post("/{classroom_id}/unarchive", response_model=ClassroomResponse)
 def unarchive(request: Request, classroom_id: int) -> ClassroomResponse:
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).unarchive(
             current_actor(request), classroom_id
         )
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(classroom, show_join_code=True)
 
 
 @router.post("/{classroom_id}/join-code", response_model=ClassroomResponse)
 def regenerate_join_code(request: Request, classroom_id: int) -> ClassroomResponse:
     """Replace the Join code; the old one stops working."""
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).regenerate_join_code(
             current_actor(request), classroom_id
         )
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(classroom, show_join_code=True)
 
 
 @router.delete("/{classroom_id}/join-code", response_model=ClassroomResponse)
 def disable_join_code(request: Request, classroom_id: int) -> ClassroomResponse:
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom = classroom_service(request).disable_join_code(
             current_actor(request), classroom_id
         )
-    except ClassroomNotFoundError:
-        _not_found()
     return _response(classroom, show_join_code=True)
 
 
 @router.get("/{classroom_id}/members", response_model=list[MemberResponse])
 def members(request: Request, classroom_id: int) -> list[MemberResponse]:
     """T-01 Members."""
-    try:
+    with CLASSROOM_ERRORS.translate():
         views = classroom_service(request).members(current_actor(request), classroom_id)
-    except ClassroomNotFoundError:
-        _not_found()
     return [_member(view) for view in views]
 
 
@@ -231,15 +215,8 @@ def members(request: Request, classroom_id: int) -> list[MemberResponse]:
     "/{classroom_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def remove_member(request: Request, classroom_id: int, user_id: int) -> Response:
-    try:
+    with CLASSROOM_ERRORS.translate():
         classroom_service(request).remove_member(
             current_actor(request), classroom_id, user_id
         )
-    except ClassroomNotFoundError:
-        _not_found()
-    except MemberNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "member_not_found", "message": "Not a member"},
-        ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

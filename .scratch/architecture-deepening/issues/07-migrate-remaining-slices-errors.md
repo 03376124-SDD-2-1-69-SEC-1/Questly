@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Characterisation tests through `build_app` pin today's statuses, codes and messages for each error path of the four slices and pass on the current code before migration.
-- [ ] Each slice declares its own error table or uses `fail`; its private helpers (for example the six `_raise_*` helpers in documents) are deleted.
-- [ ] The characterisation tests are unchanged and green after migration.
-- [ ] A search of every JSON route module finds no construction of the `{code, message}` detail outside the shared module.
-- [ ] A row for this ticket exists in the task-scope table before work starts.
+- [x] Characterisation tests through `build_app` pin today's statuses, codes and messages for each error path of the four slices and pass on the current code before migration.
+- [x] Each slice declares its own error table or uses `fail`; its private helpers (for example the six `_raise_*` helpers in documents) are deleted.
+- [x] The characterisation tests are unchanged and green after migration.
+- [x] A search of every JSON route module finds no construction of the `{code, message}` detail outside the shared module.
+- [x] A row for this ticket exists in the task-scope table before work starts.
