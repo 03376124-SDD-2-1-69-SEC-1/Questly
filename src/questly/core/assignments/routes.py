@@ -5,11 +5,7 @@ Two routers: `router` under /api/v1/assignments for content and Versions,
 Summary tab.
 """
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import NoReturn
-
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from questly.core.assignments.models import (
     Assignment,
@@ -46,39 +42,37 @@ from questly.core.assignments.service import (
 )
 from questly.core.auth.current import current_actor
 from questly.core.classrooms.csv_export import csv_response
+from questly.core.http_errors import ErrorRule, ErrorTable
 
 router = APIRouter(prefix="/api/v1/assignments", tags=["assignments"])
 classroom_router = APIRouter(prefix="/api/v1/classrooms", tags=["assignments"])
 
-_NOT_FOUND = {
-    AssignmentNotFoundError: ("assignment_not_found", "Assignment not found"),
-    ClassroomNotVisibleError: ("classroom_not_found", "Classroom not found"),
-    PostingNotFoundError: ("posting_not_found", "Not published to this classroom"),
-    VersionNotFoundError: ("version_not_found", "Version not found"),
-    TestCaseNotFoundError: ("test_case_not_found", "Test case not found"),
-}
+ASSIGNMENT_ERRORS = ErrorTable(
+    {
+        AssignmentNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "assignment_not_found", "Assignment not found"
+        ),
+        ClassroomNotVisibleError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "classroom_not_found", "Classroom not found"
+        ),
+        PostingNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND,
+            "posting_not_found",
+            "Not published to this classroom",
+        ),
+        VersionNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "version_not_found", "Version not found"
+        ),
+        TestCaseNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND, "test_case_not_found", "Test case not found"
+        ),
+        ValueError: ErrorRule(422, "invalid_assignment", str),
+    }
+)
 
 
 def assignment_service(request: Request) -> AssignmentService:
     return request.app.state.assignment_service
-
-
-@contextmanager
-def domain_errors() -> Iterator[None]:
-    """Map the slice's errors to 404 and rule violations to 422."""
-    try:
-        yield
-    except tuple(_NOT_FOUND) as error:
-        code, message = _NOT_FOUND[type(error)]
-        _fail(status.HTTP_404_NOT_FOUND, code, message)
-    except ValueError as error:
-        _fail(422, "invalid_assignment", str(error))
-
-
-def _fail(status_code: int, code: str, message: str) -> NoReturn:
-    raise HTTPException(
-        status_code=status_code, detail={"code": code, "message": message}
-    )
 
 
 def test_case_response(test_case: TestCase) -> TestCaseResponse:
@@ -154,7 +148,7 @@ def _problem(problem: InstructorProblem | StudentProblem) -> ProblemResponse:
 
 @router.get("/{assignment_id}", response_model=AssignmentResponse)
 def get_assignment(request: Request, assignment_id: int) -> AssignmentResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         assignment = assignment_service(request).get(
             current_actor(request), assignment_id
         )
@@ -167,7 +161,7 @@ def edit_assignment(
 ) -> AssignmentResponse:
     """T-05: save a new Version; extend deadlines only on the listed Postings."""
     fields = payload.model_fields_set
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         assignment = assignment_service(request).edit(
             current_actor(request),
             assignment_id,
@@ -204,7 +198,7 @@ def edit_assignment(
 @router.get("/{assignment_id}/versions", response_model=list[VersionResponse])
 def list_versions(request: Request, assignment_id: int) -> list[VersionResponse]:
     """T-02b Version history, newest first."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         versions = assignment_service(request).versions(
             current_actor(request), assignment_id
         )
@@ -213,7 +207,7 @@ def list_versions(request: Request, assignment_id: int) -> list[VersionResponse]
 
 @router.get("/{assignment_id}/versions/{number}", response_model=VersionResponse)
 def get_version(request: Request, assignment_id: int, number: int) -> VersionResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         version = assignment_service(request).version(
             current_actor(request), assignment_id, number
         )
@@ -226,7 +220,7 @@ def get_version(request: Request, assignment_id: int, number: int) -> VersionRes
 @classroom_router.get("/{classroom_id}/assignments", response_model=ProblemListResponse)
 def list_problems(request: Request, classroom_id: int) -> ProblemListResponse:
     """T-01 Problems for the Instructor, S-01 Problems for a Member."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         result = assignment_service(request).problems(
             current_actor(request), classroom_id
         )
@@ -249,7 +243,7 @@ def list_problems(request: Request, classroom_id: int) -> ProblemListResponse:
 def get_problem(
     request: Request, classroom_id: int, assignment_id: int
 ) -> ProblemResponse:
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         problem = assignment_service(request).problem(
             current_actor(request), classroom_id, assignment_id
         )
@@ -263,7 +257,7 @@ def update_posting(
     request: Request, classroom_id: int, assignment_id: int, payload: PostingPatch
 ) -> PostingResponse:
     """This Classroom's deadline, max score and late/resubmission policy."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         posting = assignment_service(request).update_posting(
             current_actor(request),
             classroom_id,
@@ -284,7 +278,7 @@ def update_posting(
 )
 def unpost(request: Request, classroom_id: int, assignment_id: int) -> Response:
     """Remove the Assignment from this Classroom only."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         assignment_service(request).unpost(
             current_actor(request), classroom_id, assignment_id
         )
@@ -299,7 +293,7 @@ def notify_students(
     request: Request, classroom_id: int, assignment_id: int
 ) -> Response:
     """T-02c "Notify students": notify every Member of this Classroom."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         assignment_service(request).notify_students(
             current_actor(request), classroom_id, assignment_id
         )
@@ -314,7 +308,7 @@ def close_posting(
     request: Request, classroom_id: int, assignment_id: int
 ) -> PostingResponse:
     """T-02 "Close submissions"."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         posting = assignment_service(request).close(
             current_actor(request), classroom_id, assignment_id
         )
@@ -324,7 +318,7 @@ def close_posting(
 @classroom_router.get("/{classroom_id}/summary", response_model=SummaryResponse)
 def summary(request: Request, classroom_id: int) -> SummaryResponse:
     """T-01 Summary for the Instructor, S-01 Summary for a Member."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         result = assignment_service(request).summary(
             current_actor(request), classroom_id
         )
@@ -359,7 +353,7 @@ def summary(request: Request, classroom_id: int) -> SummaryResponse:
 @classroom_router.get("/{classroom_id}/summary.csv")
 def export_classroom_summary(request: Request, classroom_id: int) -> Response:
     """Export the Instructor's classroom score table as CSV."""
-    with domain_errors():
+    with ASSIGNMENT_ERRORS.translate():
         result = assignment_service(request).export_summary(
             current_actor(request), classroom_id
         )
