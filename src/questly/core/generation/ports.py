@@ -41,6 +41,10 @@ from questly.core.generation.schemas import GenerationRequest, GenerationRespons
 class GenerationClient(Protocol):
     """Boundary to whatever produces an Assignment draft from a prompt."""
 
+    def is_available(self) -> bool:
+        """Whether this adapter is configured to generate; makes no network call."""
+        ...
+
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]
     ) -> GenerationResponse:

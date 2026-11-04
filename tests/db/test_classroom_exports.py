@@ -3,7 +3,6 @@
 import csv
 import io
 from collections.abc import Generator
-from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -20,10 +19,8 @@ from questly.core.auth.models import Actor, Role, User
 from questly.core.auth.service import hash_password
 from questly.database.core.auth_repository import SQLAuthRepository
 from questly.database.session import SessionFactory
-from questly.main import create_app
-from tests.fakes.app import FakeObjectStorage, fake_settings
+from tests.fakes.app import build_postgres_app
 from tests.fakes.submissions import ScriptedCodeRunner
-from tests.fakes.vector import FakeVectorRepository
 from tests.integration.forms import asgi_client, log_in
 
 pytestmark = pytest.mark.postgres
@@ -48,14 +45,11 @@ class ExportWorld:
         self.postgres_url = postgres_url
         self.session_factory = session_factory
 
-        self.app = create_app(
-            settings=replace(fake_settings(), database_url=postgres_url),
-            object_storage=FakeObjectStorage(),
-            vector_repository=FakeVectorRepository(),
+        self.app = build_postgres_app(
+            postgres_url,
             code_runner=ScriptedCodeRunner(
                 {"1 2": "3"},
             ),
-            secure_cookies=False,
         )
 
         users = SQLAuthRepository(session_factory)

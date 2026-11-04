@@ -31,6 +31,9 @@ PASSWORD = "correct horse"
 
 
 class FailingSender:
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         raise EmailDeliveryError("provider unreachable")
 

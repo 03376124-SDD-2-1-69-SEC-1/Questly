@@ -163,6 +163,9 @@ class FakeGenerationClient:
         self.during_call: Callable[[], None] | None = None
         self.requests: list[GenerationRequest] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]
     ) -> GenerationResponse:

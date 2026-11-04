@@ -273,6 +273,9 @@ class ScriptedCodeRunner:
         self.calls: list[str] = []
         self.batches: list[tuple[str, ...]] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def start(
         self,
         *,
@@ -385,6 +388,9 @@ class LocalUnsafeRunner:
             )
             for stdin in stdins
         )
+
+    def is_available(self) -> bool:
+        return True
 
     def start(
         self,
