@@ -426,3 +426,11 @@ def test_the_stub_hands_out_tokens_and_collects_runtime_errors() -> None:
     assert tokens == ("stub-1", "stub-2")
     assert batch.state is BatchState.FINISHED
     assert [e.status for e in batch.executions] == [ExecutionStatus.RUNTIME_ERROR] * 2
+
+
+def test_runner_availability_is_its_configuration_without_a_request() -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("availability must not call Judge0")
+
+    assert _runner(refuse).is_available() is True
+    assert StubCodeRunner().is_available() is False

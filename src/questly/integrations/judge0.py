@@ -98,6 +98,9 @@ class Judge0CodeRunner:
         self._monotonic = monotonic
         self._sleep = sleep
 
+    def is_available(self) -> bool:
+        return bool(self._base_url)
+
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
     ) -> Execution:
@@ -298,6 +301,9 @@ class StubCodeRunner:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+
+    def is_available(self) -> bool:
+        return False
 
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
