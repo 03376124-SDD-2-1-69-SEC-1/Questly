@@ -1,8 +1,6 @@
 """FastAPI adapter for /api/v1/auth."""
 
-from typing import NoReturn
-
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from questly.core.auth.current import SESSION_COOKIE, auth_service, current_actor
 from questly.core.auth.models import InstructorRequest, User
@@ -37,8 +35,79 @@ from questly.core.auth.service import (
     VerificationLinkInvalidError,
     rate_limit_key_for_email,
 )
+from questly.core.http_errors import ErrorRule, ErrorTable, fail
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+_EXTERNAL_CANNOT_REQUEST = ErrorRule(
+    422,
+    "external_cannot_request_instructor",
+    "Only @kmitl.ac.th accounts can request instructor rights",
+)
+
+SIGN_UP_ERRORS = ErrorTable(
+    {
+        NotKmitlEmailError: ErrorRule(
+            422, "not_kmitl_email", "Use your @kmitl.ac.th address to sign up"
+        ),
+        UseKmitlOptionError: ErrorRule(
+            422, "use_kmitl_option", "Sign up an @kmitl.ac.th address as KMITL"
+        ),
+        InvalidEmailError: ErrorRule(422, "invalid_email", "Enter a valid email address"),
+        ExternalCannotRequestInstructorError: _EXTERNAL_CANNOT_REQUEST,
+        PasswordTooShortError: ErrorRule(
+            422, "password_too_short", "Password must be at least 8 characters"
+        ),
+        PasswordMismatchError: ErrorRule(
+            422, "password_mismatch", "Passwords do not match"
+        ),
+        FacultyRequiredError: ErrorRule(
+            422, "faculty_required", "Faculty is required for an instructor request"
+        ),
+        EmailAlreadyRegisteredError: ErrorRule(
+            409, "email_already_registered", "Email already registered"
+        ),
+    }
+)
+VERIFY_ERRORS = ErrorTable(
+    {
+        VerificationLinkInvalidError: ErrorRule(
+            400, "verification_link_invalid", "This link is not valid"
+        ),
+        VerificationLinkExpiredError: ErrorRule(
+            410, "verification_link_expired", "This link has expired"
+        ),
+    }
+)
+RESEND_ERRORS = ErrorTable(
+    {
+        VerificationEmailNotSentError: ErrorRule(
+            503, "email_delivery_failed", "The email could not be sent"
+        )
+    }
+)
+LOGIN_ERRORS = ErrorTable(
+    {
+        InvalidCredentialsError: ErrorRule(
+            401, "invalid_credentials", "Wrong email or password"
+        ),
+        EmailNotVerifiedError: ErrorRule(
+            403, "email_not_verified", "This email is not verified yet"
+        ),
+        AccountDeactivatedError: ErrorRule(
+            403, "account_deactivated", "This account is deactivated"
+        ),
+    }
+)
+INSTRUCTOR_REQUEST_ERRORS = ErrorTable(
+    {
+        ExternalCannotRequestInstructorError: _EXTERNAL_CANNOT_REQUEST,
+        FacultyRequiredError: ErrorRule(422, "faculty_required", "Faculty is required"),
+        InstructorRequestExistsError: ErrorRule(
+            409, "instructor_request_exists", "A request is already pending"
+        ),
+    }
+)
 
 # A client the server cannot name shares one bucket rather than going unlimited.
 UNKNOWN_CLIENT = "unknown"
@@ -61,12 +130,6 @@ def _request_response(request: InstructorRequest) -> InstructorRequestResponse:
         user_id=request.user_id,
         faculty=request.faculty,
         status=request.status.value,
-    )
-
-
-def _fail(status_code: int, code: str, message: str) -> NoReturn:
-    raise HTTPException(
-        status_code=status_code, detail={"code": code, "message": message}
     )
 
 
@@ -100,11 +163,12 @@ def _hit(request: Request, bucket: RateLimitBucket, key: str) -> None:
     try:
         request.app.state.rate_limiter.hit(bucket, key)
     except RateLimitedError as limited:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": "rate_limited", "message": "Too many requests, try later"},
+        fail(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many requests, try later",
             headers={"Retry-After": str(limited.retry_after_seconds)},
-        ) from limited
+        )
 
 
 def set_session_cookie(request: Request, response: Response, token: str) -> None:
@@ -125,61 +189,36 @@ def set_session_cookie(request: Request, response: Response, token: str) -> None
 def sign_up(request: Request, payload: SignUpRequest) -> UserResponse:
     """Create a Student account and email a verification link."""
     enforce_rate_limit(request, RateLimitBucket.SIGNUP)
-    try:
-        user = auth_service(request).sign_up(
-            full_name=payload.full_name,
-            email=payload.email,
-            password=payload.password,
-            confirm_password=payload.confirm_password,
-            wants_instructor=payload.wants_instructor,
-            faculty=payload.faculty,
-            external=payload.external,
-        )
-    except NotKmitlEmailError:
-        _fail(422, "not_kmitl_email", "Use your @kmitl.ac.th address to sign up")
-    except UseKmitlOptionError:
-        _fail(422, "use_kmitl_option", "Sign up an @kmitl.ac.th address as KMITL")
-    except InvalidEmailError:
-        _fail(422, "invalid_email", "Enter a valid email address")
-    except ExternalCannotRequestInstructorError:
-        _fail(
-            422,
-            "external_cannot_request_instructor",
-            "Only @kmitl.ac.th accounts can request instructor rights",
-        )
-    except PasswordTooShortError:
-        _fail(422, "password_too_short", "Password must be at least 8 characters")
-    except PasswordMismatchError:
-        _fail(422, "password_mismatch", "Passwords do not match")
-    except FacultyRequiredError:
-        _fail(422, "faculty_required", "Faculty is required for an instructor request")
-    except EmailAlreadyRegisteredError:
-        _fail(409, "email_already_registered", "Email already registered")
-    except VerificationEmailNotSentError as not_sent:
-        # the account exists; the client can ask for a resend
-        user = not_sent.user
+    with SIGN_UP_ERRORS.translate():
+        try:
+            user = auth_service(request).sign_up(
+                full_name=payload.full_name,
+                email=payload.email,
+                password=payload.password,
+                confirm_password=payload.confirm_password,
+                wants_instructor=payload.wants_instructor,
+                faculty=payload.faculty,
+                external=payload.external,
+            )
+        except VerificationEmailNotSentError as not_sent:
+            # the account exists; the client can ask for a resend
+            user = not_sent.user
     return user_response(user)
 
 
 @router.post("/verify", response_model=UserResponse)
 def verify(request: Request, payload: VerifyRequest) -> UserResponse:
     """Confirm an email address with the token from the link."""
-    try:
+    with VERIFY_ERRORS.translate():
         return user_response(auth_service(request).verify_email(payload.token))
-    except VerificationLinkInvalidError:
-        _fail(400, "verification_link_invalid", "This link is not valid")
-    except VerificationLinkExpiredError:
-        _fail(410, "verification_link_expired", "This link has expired")
 
 
 @router.post("/verify/resend", status_code=status.HTTP_202_ACCEPTED)
 def resend(request: Request, payload: ResendRequest) -> Response:
     """Email a fresh verification link if the account exists and is unverified."""
     enforce_rate_limit(request, RateLimitBucket.RESEND, email=payload.email)
-    try:
+    with RESEND_ERRORS.translate():
         auth_service(request).resend_verification(payload.email)
-    except VerificationEmailNotSentError:
-        _fail(503, "email_delivery_failed", "The email could not be sent")
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
@@ -189,16 +228,10 @@ def log_in(
 ) -> LoginResponse:
     """Start a session; the token travels in an HttpOnly cookie."""
     enforce_rate_limit(request, RateLimitBucket.LOGIN, email=payload.email)
-    try:
+    with LOGIN_ERRORS.translate():
         result = auth_service(request).log_in(
             email=payload.email, password=payload.password
         )
-    except InvalidCredentialsError:
-        _fail(401, "invalid_credentials", "Wrong email or password")
-    except EmailNotVerifiedError:
-        _fail(403, "email_not_verified", "This email is not verified yet")
-    except AccountDeactivatedError:
-        _fail(403, "account_deactivated", "This account is deactivated")
     set_session_cookie(request, response, result.token)
     return LoginResponse(user=user_response(result.user), landing=result.landing.value)
 
@@ -231,18 +264,8 @@ def request_instructor(
 ) -> InstructorRequestResponse:
     """Ask an Admin for Instructor rights."""
     actor = current_actor(request)
-    try:
+    with INSTRUCTOR_REQUEST_ERRORS.translate():
         created = auth_service(request).request_instructor(
             actor, faculty=payload.faculty
         )
-    except ExternalCannotRequestInstructorError:
-        _fail(
-            422,
-            "external_cannot_request_instructor",
-            "Only @kmitl.ac.th accounts can request instructor rights",
-        )
-    except FacultyRequiredError:
-        _fail(422, "faculty_required", "Faculty is required")
-    except InstructorRequestExistsError:
-        _fail(409, "instructor_request_exists", "A request is already pending")
     return _request_response(created)

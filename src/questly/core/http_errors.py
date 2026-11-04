@@ -29,10 +29,18 @@ class ErrorRule:
     message: Message
 
 
-def fail(status_code: int, code: str, message: str) -> NoReturn:
-    """Raise the `{code, message}` error response."""
+def fail(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> NoReturn:
+    """Raise the `{code, message}` error response, with optional extra headers."""
     raise HTTPException(
-        status_code=status_code, detail={"code": code, "message": message}
+        status_code=status_code,
+        detail={"code": code, "message": message},
+        headers=None if headers is None else dict(headers),
     )
 
 
