@@ -1,13 +1,8 @@
 """JSON API for Submissions and Runs under /api/v1 (ADR-0007 API contract)."""
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import NoReturn
-
 from fastapi import (
     APIRouter,
     BackgroundTasks,
-    HTTPException,
     Request,
     Response,
     status,
@@ -16,6 +11,7 @@ from fastapi import (
 from questly.core.assignments.models import TestCaseKind
 from questly.core.auth.current import current_actor
 from questly.core.classrooms.csv_export import CsvCell, bangkok_time, csv_response
+from questly.core.http_errors import ErrorRule, ErrorTable
 from questly.core.submissions.models import (
     ClassroomArchivedError,
     EmptyCodeError,
@@ -44,42 +40,36 @@ def _service(request: Request) -> SubmissionService:
     return request.app.state.submission_service
 
 
-def _fail(status_code: int, code: str, message: str) -> NoReturn:
-    raise HTTPException(
-        status_code=status_code, detail={"code": code, "message": message}
-    )
-
-
-@contextmanager
-def domain_errors() -> Iterator[None]:
-    try:
-        yield
-    except NOT_VISIBLE:
-        _fail(status.HTTP_404_NOT_FOUND, "not_found", "Not found")
-    except ClassroomArchivedError:
-        _fail(status.HTTP_409_CONFLICT, "classroom_archived", "Classroom is archived")
-    except PostingClosedError:
-        _fail(status.HTTP_409_CONFLICT, "posting_closed", "Submissions are closed")
-    except ResubmissionNotAllowedError:
-        _fail(
+SUBMISSION_ERRORS = ErrorTable(
+    {
+        **{
+            error: ErrorRule(status.HTTP_404_NOT_FOUND, "not_found", "Not found")
+            for error in NOT_VISIBLE
+        },
+        ClassroomArchivedError: ErrorRule(
+            status.HTTP_409_CONFLICT, "classroom_archived", "Classroom is archived"
+        ),
+        PostingClosedError: ErrorRule(
+            status.HTTP_409_CONFLICT, "posting_closed", "Submissions are closed"
+        ),
+        ResubmissionNotAllowedError: ErrorRule(
             status.HTTP_409_CONFLICT,
             "resubmission_not_allowed",
             "This problem allows one submission only",
-        )
-    except SubmissionPendingError:
-        _fail(
+        ),
+        SubmissionPendingError: ErrorRule(
             status.HTTP_409_CONFLICT,
             "submission_pending",
             "Your last submission is still being judged",
-        )
-    except EmptyCodeError:
-        _fail(422, "empty_code", "Code is empty")
-    except RunnerUnavailableError:
-        _fail(
+        ),
+        EmptyCodeError: ErrorRule(422, "empty_code", "Code is empty"),
+        RunnerUnavailableError: ErrorRule(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "runner_unavailable",
             "The code runner is unavailable; nothing was saved. Try again shortly.",
-        )
+        ),
+    }
+)
 
 
 def result_response(result: TestResult, *, full: bool) -> TestResultResponse:
@@ -132,7 +122,7 @@ def submit(
     """Receives the code and judges it in the background; poll `Location`."""
     actor = current_actor(request)
     service = _service(request)
-    with domain_errors():
+    with SUBMISSION_ERRORS.translate():
         submission = service.submit(actor, classroom_id, assignment_id, body.code)
     background_tasks.add_task(service.judge, submission.id)
     response.headers["Location"] = f"{router.prefix}/{submission.id}"
@@ -145,7 +135,7 @@ def list_submissions(
 ) -> list[SubmissionResponse]:
     """The Instructor sees every Student's; a Student sees their own history."""
     actor = current_actor(request)
-    with domain_errors():
+    with SUBMISSION_ERRORS.translate():
         submissions = _service(request).submissions(actor, classroom_id, assignment_id)
     return [submission_response(submission) for submission in submissions]
 
@@ -157,7 +147,7 @@ def export_submissions_csv(
     assignment_id: int,
 ) -> Response:
     """Export submission history for an Instructor."""
-    with domain_errors():
+    with SUBMISSION_ERRORS.translate():
         rows = _service(request).export_submissions(
             current_actor(request), classroom_id, assignment_id
         )
@@ -217,7 +207,7 @@ def run(
 ) -> RunResponse:
     """Sample tests only; not graded and not stored."""
     actor = current_actor(request)
-    with domain_errors():
+    with SUBMISSION_ERRORS.translate():
         report = _service(request).run(actor, classroom_id, assignment_id, body.code)
     return RunResponse(
         passed=sum(1 for result in report.results if result.passed),
@@ -230,6 +220,6 @@ def run(
 def get_submission(request: Request, submission_id: int) -> SubmissionResponse:
     """A Submission and how far judging it got; for its Student or Instructor."""
     actor = current_actor(request)
-    with domain_errors():
+    with SUBMISSION_ERRORS.translate():
         submission = _service(request).get(actor, submission_id)
     return submission_response(submission)
