@@ -1,8 +1,9 @@
 """HTTP routes for Notifications."""
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 
 from questly.core.auth.current import current_actor
+from questly.core.http_errors import ErrorRule, ErrorTable
 from questly.core.notifications.models import Notification
 from questly.core.notifications.schemas import (
     DueSoonResponse,
@@ -17,6 +18,16 @@ from questly.core.notifications.service import (
 )
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
+
+NOTIFICATION_ERRORS = ErrorTable(
+    {
+        NotificationNotFoundError: ErrorRule(
+            status.HTTP_404_NOT_FOUND,
+            "notification_not_found",
+            "Notification not found",
+        ),
+    }
+)
 
 
 def notification_service(request: Request) -> NotificationService:
@@ -74,19 +85,11 @@ def mark_notification_read(
     """Mark one of the current user's notifications as read."""
     actor = current_actor(request)
 
-    try:
+    with NOTIFICATION_ERRORS.translate():
         notification = notification_service(request).mark_read(
             actor.user_id,
             notification_id,
         )
-    except NotificationNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "code": "notification_not_found",
-                "message": "Notification not found",
-            },
-        ) from None
 
     return notification_response(notification)
 
