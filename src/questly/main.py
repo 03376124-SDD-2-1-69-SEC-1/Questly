@@ -444,7 +444,7 @@ def create_app(
 
     if admin_repository is None:
         admin_repository = SQLAdminRepository(use_session_factory())
-    # Resolved before the health checker, which reports whether it is a stub.
+    # Resolved before the health checker, which asks it whether it is available.
     if code_runner is None:
         code_runner = build_code_runner(use_settings())
     if system_health_checker is None:
@@ -453,12 +453,11 @@ def create_app(
             generation_available=(
                 bool(use_settings().openrouter_api_key)
                 or (
-                    generation_client is not None
-                    and not isinstance(generation_client, StubGenerationClient)
+                    generation_client is not None and generation_client.is_available()
                 )
             ),
-            sandbox_available=not isinstance(code_runner, StubCodeRunner),
-            email_available=(not isinstance(email_sender, StubEmailSender)),
+            sandbox_available=code_runner.is_available(),
+            email_available=email_sender.is_available(),
         )
     if provider_quota is None:
         if use_settings().openrouter_api_key:
@@ -480,8 +479,7 @@ def create_app(
         base_url=use_settings().base_url,
         # The stub sends nothing, so development shows the link on G-04a.
         show_demo_link=(
-            isinstance(email_sender, StubEmailSender)
-            and use_settings().app_env != PRODUCTION
+            not email_sender.is_available() and use_settings().app_env != PRODUCTION
         ),
         onscreen_verify_domains=use_settings().onscreen_verify_domains,
     )

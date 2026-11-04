@@ -15,6 +15,7 @@ from questly.core.notifications.ports import EmailDeliveryError
 from questly.integrations.email import (
     RESEND_EMAILS_URL,
     SEND_TIMEOUT_SECONDS,
+    QueuedEmailSender,
     ResendEmailSender,
     SmtpEmailSender,
     StubEmailSender,
@@ -339,3 +340,12 @@ def test_main_builds_the_adapter_the_backend_names(
     from questly.main import _build_email_sender
 
     assert type(_build_email_sender(_settings(**override))) is expected
+
+
+def test_adapters_say_whether_they_really_deliver() -> None:
+    assert _smtp(Calls(), security="ssl", port=465).is_available() is True
+    assert ResendEmailSender(api_key=API_KEY, sender=SENDER).is_available() is True
+    assert ResendEmailSender(api_key="", sender=SENDER).is_available() is False
+    assert StubEmailSender().is_available() is False
+    assert QueuedEmailSender(StubEmailSender()).is_available() is False
+    assert QueuedEmailSender(_smtp(Calls(), security="ssl", port=465)).is_available()

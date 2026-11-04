@@ -234,6 +234,9 @@ class FakeCodeRunner:
         self._executions = list(executions)
         self.calls: list[tuple[str, str, str]] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
     ) -> Execution:
@@ -853,6 +856,9 @@ def test_flattened_sample_with_wrong_solution_is_rejected() -> None:
     ).read_text(encoding="utf-8")
 
     class WrongRunner:
+        def is_available(self) -> bool:
+            return True
+
         def run(
             self,
             *,
@@ -1004,6 +1010,9 @@ class CountingRunner:
     def __init__(self) -> None:
         self.runs = 0
 
+    def is_available(self) -> bool:
+        return True
+
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
     ) -> Execution:
@@ -1051,3 +1060,8 @@ def test_generation_treats_samples_beyond_the_budget_as_unverified_not_failed(
     test_case_runs = len(response.draft.test_cases)
     assert send.call_count == 1
     assert runner.runs == 3 + test_case_runs
+
+
+def test_generation_clients_say_whether_they_are_configured() -> None:
+    assert StubGenerationClient().is_available() is False
+    assert _make_client().is_available() is True
