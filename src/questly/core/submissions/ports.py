@@ -29,6 +29,10 @@ class CodeRunner(Protocol):
     judged at all.
     """
 
+    def is_available(self) -> bool:
+        """Whether this runner is configured to run code; makes no network call."""
+        ...
+
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
     ) -> Execution:

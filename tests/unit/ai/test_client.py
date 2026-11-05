@@ -42,6 +42,7 @@ from questly.core.generation.schemas import (
 from questly.core.generation.service import GenerationFailedError, GenerationService
 from questly.core.submissions.models import Execution, ExecutionStatus
 from questly.core.submissions.ports import CodeRunner
+from questly.core.submissions.service import outputs_match
 from questly.integrations.judge0 import StubCodeRunner
 
 # ---------------------------------------------------------------------------
@@ -232,6 +233,9 @@ class FakeCodeRunner:
     def __init__(self, executions: list[Execution]) -> None:
         self._executions = list(executions)
         self.calls: list[tuple[str, str, str]] = []
+
+    def is_available(self) -> bool:
+        return True
 
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
@@ -852,6 +856,9 @@ def test_flattened_sample_with_wrong_solution_is_rejected() -> None:
     ).read_text(encoding="utf-8")
 
     class WrongRunner:
+        def is_available(self) -> bool:
+            return True
+
         def run(
             self,
             *,
@@ -890,6 +897,29 @@ def test_short_copied_statement_and_long_copied_title_are_detected() -> None:
 
 
 _SAMPLE_EXCERPT = "โจทย์เรื่องค่าสูงสุด\nSample Input:\n3\n1 5 2\nSample Output:\n5"
+
+
+@pytest.mark.parametrize("stdout", ["5", "5  \n\n", "5\n", "6", " 5", "5\n6"])
+def test_grounding_accepts_exactly_what_the_judge_accepts(stdout: str) -> None:
+    class FixedRunner:
+        def run(
+            self,
+            *,
+            code: str,
+            language: str,
+            stdin: str,
+            time_limit_seconds: float,
+        ) -> Execution:
+            return _ok(stdout)
+
+    failure = _grounding_failure(
+        _parse_response(_VALID_LLM_RESPONSE),
+        [_citation(_SAMPLE_EXCERPT)],
+        FixedRunner(),
+        _ignore_step,
+    )
+
+    assert (failure == "") == outputs_match("5", stdout)
 
 
 def test_stub_runner_skips_sample_check_instead_of_failing_every_draft() -> None:
@@ -979,6 +1009,9 @@ class CountingRunner:
     def __init__(self) -> None:
         self.runs = 0
 
+    def is_available(self) -> bool:
+        return True
+
     def run(
         self, *, code: str, language: str, stdin: str, time_limit_seconds: float
     ) -> Execution:
@@ -1026,3 +1059,8 @@ def test_generation_treats_samples_beyond_the_budget_as_unverified_not_failed(
     test_case_runs = len(response.draft.test_cases)
     assert send.call_count == 1
     assert runner.runs == 3 + test_case_runs
+
+
+def test_generation_clients_say_whether_they_are_configured() -> None:
+    assert StubGenerationClient().is_available() is False
+    assert _make_client().is_available() is True

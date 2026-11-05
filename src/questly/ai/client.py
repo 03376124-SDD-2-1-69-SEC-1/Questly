@@ -48,6 +48,7 @@ from questly.core.generation.schemas import (
 )
 from questly.core.submissions.models import ExecutionStatus
 from questly.core.submissions.ports import CodeRunner
+from questly.core.submissions.service import normalise_output, outputs_match
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +225,9 @@ class StubGenerationClient:
     def __init__(self, step_delay_seconds: float = 0.0) -> None:
         self._step_delay_seconds = step_delay_seconds
 
+    def is_available(self) -> bool:
+        return False
+
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]
     ) -> GenerationResponse:
@@ -268,11 +272,15 @@ class OpenRouterGenerationClient:
         # Read on every generate(), so the model an Admin picks on A-01 is
         # used from the next call on.
         self._model = model
+        self._configured = bool(api_key)
         self._code_runner = code_runner
         self._retriever = retriever
         self._client = OpenRouter(
             api_key=api_key, timeout_ms=_TIMEOUT_MS, retry_config=_RETRY
         )
+
+    def is_available(self) -> bool:
+        return self._configured
 
     def generate(
         self, request: GenerationRequest, on_step: Callable[[GenerationStep], None]
@@ -366,7 +374,7 @@ class OpenRouterGenerationClient:
                 time_limit_seconds=_SOLUTION_TIME_LIMIT_SECONDS,
             )
             if execution.status is ExecutionStatus.OK:
-                expected_output = _as_expected_output(execution.stdout)
+                expected_output = normalise_output(execution.stdout)
             else:
                 logger.warning(
                     "reference solution failed model=%s test_case=%d status=%s; "
@@ -476,9 +484,9 @@ def _check_strategy(
         if execution.is_runner_not_configured:
             budget.runner_not_configured = True
             return _SampleCheck.UNVERIFIED
-        if execution.status is not ExecutionStatus.OK or _as_expected_output(
-            execution.stdout
-        ) != _as_expected_output(sample_output):
+        if execution.status is not ExecutionStatus.OK or not outputs_match(
+            sample_output, execution.stdout
+        ):
             return _SampleCheck.MISMATCHED
     return _SampleCheck.MATCHED
 
@@ -573,11 +581,6 @@ def _flattened_sample_strategies(excerpt: str) -> list[list[tuple[str, str]]]:
             )
         return strategies
     return []
-
-
-def _as_expected_output(stdout: str) -> str:
-    """Stdout in the form SubmissionService.outputs_match compares on."""
-    return "\n".join(line.rstrip() for line in stdout.rstrip().splitlines())
 
 
 def _parse_response(raw: str) -> _ParsedReply:

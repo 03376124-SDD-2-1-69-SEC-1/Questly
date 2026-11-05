@@ -24,6 +24,9 @@ class Recorder:
         self.crash = crash
         self.delivered: list[SentEmail] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         if to in self.refuse:
             raise EmailDeliveryError(f"mailbox refused: {body}")
@@ -39,6 +42,9 @@ class Blocking:
         self.release = threading.Event()
         self.entered = threading.Event()
         self.delivered: list[str] = []
+
+    def is_available(self) -> bool:
+        return True
 
     def send(self, *, to: str, subject: str, body: str) -> None:
         self.entered.set()
