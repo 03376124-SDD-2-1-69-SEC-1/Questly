@@ -149,6 +149,8 @@ async def test_s02g_history_lists_attempts_and_shows_code(demo: Demo) -> None:
 
     assert 'data-state="S-02g"' in page.text
     assert 'data-attempt="2"' in page.text and "def binary_search" in page.text
+    assert f'href="{url}?tab=history&attempt=2#shown-title"' in page.text
+    assert 'id="shown-title"' in page.text
     assert (await client.get(url + "?tab=history&attempt=9")).status_code == 404
 
 

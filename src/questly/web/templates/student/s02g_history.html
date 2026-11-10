@@ -27,7 +27,7 @@
           <td>—</td>
           {% endif %}
           <td>{% if sub.status.value == "failed" %}does not count{% elif sub.version_number < problem.assignment.current_version %}{{ badge("on an older version", tone="warn") }}{% elif view.counted and sub.id == view.counted.id %}{{ badge("counted", tone="ok") }}{% else %}—{% endif %}</td>
-          <td class="text-right"><a class="link whitespace-nowrap" href="{{ url }}?tab=history&attempt={{ sub.attempt }}">View code</a></td>
+          <td class="text-right"><a class="link whitespace-nowrap" href="{{ url }}?tab=history&attempt={{ sub.attempt }}#shown-title">View code</a></td>
         </tr>
         {% endfor %}
       </tbody>
