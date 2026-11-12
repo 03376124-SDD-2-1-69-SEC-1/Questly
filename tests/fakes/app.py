@@ -3,9 +3,14 @@
 `create_app()` with no arguments builds SQL and R2 adapters, so every test that
 drives HTTP goes through here instead: one place that decides what a test app is
 made of, and no test that accidentally reaches real infrastructure.
+
+`build_postgres_app` is the sibling for `tests/db/`: the SQL adapters stay, only
+settings, R2 and the vector store are faked.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 from fastapi import FastAPI
 
@@ -198,4 +203,38 @@ def build_app(
         secure_cookies=secure_cookies,
         rate_limiter=rate_limiter,
         expose_docs=expose_docs,
+    )
+
+
+def build_postgres_app(
+    postgres_url: str,
+    *,
+    settings: Settings | None = None,
+    object_storage: ObjectStorage | None = None,
+    vector_repository: VectorRepository | None = None,
+    verification_mailer: EmailSender | None = None,
+    clock: Clock | None = None,
+    code_runner: Runner | None = None,
+    secure_cookies: bool = False,
+) -> FastAPI:
+    """Return the app as production builds it, over the throwaway Postgres branch.
+
+    Only settings, R2 and the vector store are swapped out, so every other port is
+    the SQL adapter `create_app` wires. Pass an adapter to replace one under test;
+    `settings` is used as given except that `database_url` is always `postgres_url`.
+    """
+    if settings is None:
+        settings = fake_settings()
+    if object_storage is None:
+        object_storage = FakeObjectStorage()
+    if vector_repository is None:
+        vector_repository = FakeVectorRepository()
+    return create_app(
+        settings=replace(settings, database_url=postgres_url),
+        object_storage=object_storage,
+        vector_repository=vector_repository,
+        email_sender=verification_mailer,
+        clock=clock,
+        code_runner=code_runner,
+        secure_cookies=secure_cookies,
     )

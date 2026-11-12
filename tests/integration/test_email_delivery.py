@@ -36,6 +36,9 @@ class ProviderDown:
         self.down = down
         self.attempts: list[SentEmail] = []
 
+    def is_available(self) -> bool:
+        return True
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         self.attempts.append(SentEmail(to=to, subject=subject, body=body))
         if self.down:

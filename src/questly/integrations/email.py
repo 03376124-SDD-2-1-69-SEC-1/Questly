@@ -45,6 +45,9 @@ class StubEmailSender:
     def __init__(self) -> None:
         self.messages: list[SentEmail] = []
 
+    def is_available(self) -> bool:
+        return False
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         """Record an email sent through the notification email port."""
         self.messages.append(SentEmail(to=to, subject=subject, body=body))
@@ -66,6 +69,9 @@ class QueuedEmailSender:
         self._queue: queue.Queue[SentEmail] = queue.Queue()
         self._started = False
         self._start_lock = threading.Lock()
+
+    def is_available(self) -> bool:
+        return self._inner.is_available()
 
     def send(self, *, to: str, subject: str, body: str) -> None:
         self._queue.put(SentEmail(to=to, subject=subject, body=body))
@@ -155,6 +161,9 @@ class SmtpEmailSender:
         self._smtp_factory = smtp_factory
         self._smtp_ssl_factory = smtp_ssl_factory
 
+    def is_available(self) -> bool:
+        return bool(self._host)
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         try:
             message = EmailMessage()
@@ -205,6 +214,9 @@ class ResendEmailSender:
         if client is None:
             client = httpx.Client(timeout=SEND_TIMEOUT_SECONDS)
         self._client = client
+
+    def is_available(self) -> bool:
+        return bool(self._api_key)
 
     def send(self, *, to: str, subject: str, body: str) -> None:
         try:
