@@ -11,41 +11,14 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    if: github.repository == '03376124-SDD-2-1-69-SEC-1/Questly'
+    runs-on: [self-hosted, questly-vps]
     environment: production
     steps:
-      - name: Connect OpenVPN
+      - name: Build and restart on the VPS
         env:
-          OVPN_CONFIG: ${{ secrets.OVPN_CONFIG }}
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq openvpn
-          umask 077
-          printf '%s\n' "$OVPN_CONFIG" > /tmp/ci.ovpn
-          sudo openvpn --config /tmp/ci.ovpn \
-            --pull-filter ignore redirect-gateway \
-            --daemon --log /tmp/openvpn.log --writepid /tmp/openvpn.pid
-          for i in $(seq 1 30); do
-            sudo grep -q "Initialization Sequence Completed" /tmp/openvpn.log && exit 0
-            sleep 1
-          done
-          echo "VPN did not come up"; sudo tail -20 /tmp/openvpn.log; exit 1
-
-      - name: Deploy over SSH
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh "deploy@$HOST" "${{ github.sha }}"
+          SSH_ORIGINAL_COMMAND: ${{ github.sha }}
+        run: /usr/local/bin/questly-deploy
 
       - name: Public health check
         run: curl -fsS --retry 10 --retry-delay 6 --retry-all-errors https://questly.comtech.fun/health
-
-      - name: Disconnect VPN
-        if: always()
-        run: |
-          sudo kill "$(cat /tmp/openvpn.pid)" 2>/dev/null || true
-          rm -f /tmp/ci.ovpn ~/.ssh/id_ed25519
