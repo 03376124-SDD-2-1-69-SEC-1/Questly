@@ -8,10 +8,12 @@
   {% call admin_shell("ai") %}
   {% if error %}{% call alert(tone="danger") %}{{ error }}{% endcall %}{% endif %}
   {% if saved %}{% call alert() %}AI settings saved. They apply to all new generations.{% endcall %}{% endif %}
+  {% if catalog_empty %}{% call alert(tone="warn") %}Could not read OpenRouter's free model list. Showing the stored model only; generation still runs with it.{% endcall %}{% endif %}
+  {% if stored_model_missing %}{% call alert(tone="warn") %}{{ stored_model }} is no longer available on OpenRouter. Generation falls back to other free models automatically; pick a model to replace it.{% endcall %}{% endif %}
   <div class="grid gap-5 lg:grid-cols-[2fr_1fr]">
     <form method="post" action="/admin/settings/ai" class="card gap-4">
       {{ csrf_field() }}
-      {{ select_field("model", "Generation model", models, selected=form.model, hint="Applies to all new generations.") }}
+      {{ select_field("model", "Generation model", models, selected=form.model, blank=(stored_model ~ " (no longer available)" if stored_model_missing else stored_model if catalog_empty else ""), hint="Applies to all new generations.") }}
       {{ field("daily_quota", "Daily generation quota per instructor", type="number", value=form.daily_quota, min=1, required=true) }}
       {{ field("max_pages", "Max pages read per generation", type="number", value=form.max_pages, min=1, required=true) }}
       {{ checkbox("require_citations", "Require citations in every generated problem", checked=form.require_citations) }}

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from questly.core.admin.models import AvailableModel
 from questly.core.auth.models import InstructorRequest, Role
 from questly.core.generation.models import ProviderQuotaSnapshot, QuotaKind
 from tests.fakes.admin import FakeAdminRepository, FakeSystemHealthChecker
@@ -17,6 +18,7 @@ from tests.fakes.auth import (
     seed_user,
 )
 from tests.fakes.generation import FakeProviderQuota
+from tests.fakes.model_catalog import FakeModelCatalog
 from tests.integration.forms import log_in, post_form
 from tests.integration.markup import loading_icons
 
@@ -47,15 +49,18 @@ class Admin:
         )
         self.student = seed_user(self.auth, email=STUDENT, full_name="Nattapong")
         self.settings = FakeAdminRepository()
+        self.catalog = FakeModelCatalog(
+            (
+                AvailableModel(self.settings.settings.model, False),
+                AvailableModel(OTHER_MODEL, True),
+            )
+        )
         self.app = build_app(
             auth_repository=self.auth,
             admin_repository=self.settings,
             system_health_checker=health,
             provider_quota=provider,
-        )
-        self.app.state.admin_service.allowed_models = (
-            self.settings.settings.model,
-            OTHER_MODEL,
+            model_catalog=self.catalog,
         )
 
     def request_from(self, email: str, name: str, faculty: str = "Science") -> int:
@@ -381,6 +386,54 @@ async def test_ai_tab_shows_the_settings_and_the_allowlist() -> None:
     assert 'name="max_pages" type="number" value="10"' in page
     assert 'name="require_citations" checked' in page
     assert "Usage this month" in page and "0 generations" in page
+
+
+@pytest.mark.anyio
+async def test_ai_tab_lists_the_catalog_as_it_is_now() -> None:
+    api = Admin()
+    client = await api.client_for(ADMIN)
+    api.catalog.models = (AvailableModel("fresh/model:free", True),)
+
+    page = (await client.get("/admin/settings/ai")).text
+
+    assert "fresh/model:free" in page and OTHER_MODEL not in page
+    assert "no longer available" in page
+
+
+@pytest.mark.anyio
+async def test_a_stored_model_missing_from_the_list_is_flagged_and_kept() -> None:
+    api = Admin()
+    client = await api.client_for(ADMIN)
+    stored = api.settings.settings.model
+    api.catalog.models = (AvailableModel(OTHER_MODEL, True),)
+
+    page = (await client.get("/admin/settings/ai")).text
+    response = await post_form(
+        client,
+        "/admin/settings/ai",
+        {"model": "", "daily_quota": "7", "max_pages": "10"},
+        page="/admin/settings/ai",
+    )
+
+    assert f"{stored} (no longer available)" in page
+    assert "falls back to other free models automatically" in page
+    assert response.status_code == 303
+    assert api.settings.settings.model == stored
+    assert api.settings.settings.daily_quota == 7
+
+
+@pytest.mark.anyio
+async def test_an_empty_catalog_shows_the_stored_model_and_a_warning() -> None:
+    api = Admin()
+    client = await api.client_for(ADMIN)
+    api.catalog.models = ()
+
+    response = await client.get("/admin/settings/ai")
+
+    assert response.status_code == 200
+    assert "Could not read OpenRouter's free model list" in response.text
+    assert api.settings.settings.model in response.text
+    assert "no longer available" not in response.text
 
 
 @pytest.mark.anyio

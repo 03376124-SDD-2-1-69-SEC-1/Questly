@@ -34,20 +34,10 @@ class MissingConfigurationError(RuntimeError):
     """Raised when a required environment variable is absent or unusable."""
 
 
+# First-boot default for core.ai_settings only. The models A-01 offers are
+# OpenRouter's live free list (OPS-55, ADR-0012); a stored model missing from
+# it still runs, because generation falls back to the listed ones.
 DEFAULT_GENERATION_MODEL = "poolside/laguna-s-2.1:free"
-# OPS-26 (ADR-0012) measured six `:free` models on three Thai seed problems;
-# laguna-s was the only one that parsed every reply and whose solution ran
-# (exit 0) on every one of its own inputs. laguna-xs and nemotron-3-super
-# below were also measured, and scored worse — why they are here anyway, and
-# the lighter options the team may still pick, are in the ADR's
-# "Open question: allowlist membership". Re-run
-# scripts/compare_generation_models.py when OpenRouter's free tier changes.
-# Do not add other providers here: ADR-0009.
-DEFAULT_GENERATION_ALLOWLIST = (
-    DEFAULT_GENERATION_MODEL,
-    "poolside/laguna-xs-2.1:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-)
 # Changing it means re-embedding every chunk, and the replacement must return
 # 768 dimensions (VECTOR(768) in `rag`).
 DEFAULT_EMBEDDING_MODEL = "google/gemini-embedding-001"
@@ -66,9 +56,9 @@ class Settings:
     # OpenRouter — optional: empty string means demo/stub mode
     openrouter_api_key: str = ""
     generation_model: str = DEFAULT_GENERATION_MODEL
-    # Models an Admin may pick on A-01; the default comes from the OPS-26
-    # comparison (ADR-0012) and always contains generation_model.
-    generation_model_allowlist: tuple[str, ...] = DEFAULT_GENERATION_ALLOWLIST
+    # Empty: every free model OpenRouter lists. Set: only those ids, and the
+    # list used while OpenRouter's own cannot be read (OPS-55).
+    generation_model_allowlist: tuple[str, ...] = ()
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     # Judge0 CE: empty URL means no Judge0, and Run/Submit use the stub runner.
     judge0_url: str = ""
@@ -260,19 +250,10 @@ def _email_environment() -> _EmailEnvironment:
     )
 
 
-def _model_allowlist(generation_model: str) -> tuple[str, ...]:
-    """GENERATION_MODEL_ALLOWLIST, comma-separated.
-
-    Unset, it falls back to DEFAULT_GENERATION_ALLOWLIST (ADR-0012) when the
-    configured model is one of those, and to just generation_model otherwise.
-    """
+def _model_allowlist() -> tuple[str, ...]:
+    """GENERATION_MODEL_ALLOWLIST, comma-separated; unset means no narrowing."""
     raw = os.environ.get("GENERATION_MODEL_ALLOWLIST", "")
-    models = tuple(model.strip() for model in raw.split(",") if model.strip())
-    if not models:
-        if generation_model in DEFAULT_GENERATION_ALLOWLIST:
-            return DEFAULT_GENERATION_ALLOWLIST
-        return (generation_model,)
-    return models
+    return tuple(model.strip() for model in raw.split(",") if model.strip())
 
 
 def _onscreen_verify_domains() -> tuple[str, ...]:
@@ -310,7 +291,7 @@ def get_settings() -> Settings:
         max_upload_size_bytes=_upload_size_limit(),
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY", "").strip(),
         generation_model=generation_model,
-        generation_model_allowlist=_model_allowlist(generation_model),
+        generation_model_allowlist=_model_allowlist(),
         embedding_model=(
             os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
             or DEFAULT_EMBEDDING_MODEL

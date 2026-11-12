@@ -215,9 +215,7 @@ def _ai_page(
             "max_pages": str(current.settings.max_pages),
             "require_citations": "on" if current.settings.require_citations else "",
         }
-    models = list(service.allowed_models)
-    if current.settings.model not in models:
-        models.insert(0, current.settings.model)
+    models = service.allowed_models(actor)
     provider = service.provider_quota(actor)
     return _templates(request).TemplateResponse(
         request,
@@ -228,6 +226,12 @@ def _ai_page(
             "tab": "ai",
             "form": form,
             "models": models,
+            "stored_model": current.settings.model,
+            # Empty list: the provider list could not be read; show only the
+            # stored model. Otherwise a stored model missing from it is flagged.
+            "catalog_empty": not models,
+            "stored_model_missing": bool(models)
+            and current.settings.model not in models,
             "usage_this_month": current.usage_this_month,
             "provider": provider,
             "provider_resets": provider.resets_at.astimezone(LOCAL_ZONE).strftime(
@@ -273,7 +277,8 @@ def ai_save(
     }
     try:
         change = AISettingsChange(
-            model=model,
+            # Blank only when the stored model left the list: keep it.
+            model=model or None,
             daily_quota=_whole_number(daily_quota, "Daily quota"),
             max_pages=_whole_number(max_pages, "Max pages"),
             require_citations=bool(require_citations),

@@ -6,6 +6,7 @@ import pytest
 
 from questly.core.admin.models import (
     AISettingsChange,
+    AvailableModel,
     InvalidAISettingsError,
     ModelNotAllowedError,
     SelfModificationError,
@@ -28,6 +29,7 @@ from tests.fakes.admin import (
 )
 from tests.fakes.auth import DEFAULT_NOW, FakeAuthRepository, FakeClock, seed_user
 from tests.fakes.generation import FakeDraftRepository, FakeProviderQuota
+from tests.fakes.model_catalog import FakeModelCatalog
 
 
 def _actor(user: User) -> Actor:
@@ -42,6 +44,12 @@ class Admin:
         self.settings = FakeAdminRepository()
         self.drafts = FakeDraftRepository()
         self.provider = FakeProviderQuota()
+        self.catalog = FakeModelCatalog(
+            (
+                AvailableModel(DEFAULT_AI_SETTINGS.model, False),
+                AvailableModel("other/model", True),
+            )
+        )
         self.service = AdminService(
             self.settings,
             self.auth,
@@ -49,7 +57,7 @@ class Admin:
             generation_usage=self.drafts,
             provider_quota=self.provider,
             clock=FakeClock(now),
-            allowed_models=(DEFAULT_AI_SETTINGS.model, "other/model"),
+            model_catalog=self.catalog,
         )
         self.admin = _actor(
             seed_user(
@@ -84,6 +92,34 @@ def test_model_outside_the_allowlist_is_refused_and_nothing_is_saved() -> None:
         )
 
     assert admin.settings.settings == DEFAULT_AI_SETTINGS
+
+
+def test_allowed_models_are_read_from_the_catalog_on_every_call() -> None:
+    admin = Admin()
+    assert admin.service.allowed_models(admin.admin) == (
+        DEFAULT_AI_SETTINGS.model,
+        "other/model",
+    )
+
+    admin.catalog.models = (AvailableModel("new/model:free", False),)
+
+    assert admin.service.allowed_models(admin.admin) == ("new/model:free",)
+    saved = admin.service.update_ai_settings(
+        admin.admin, AISettingsChange(model="new/model:free")
+    )
+    assert saved.settings.model == "new/model:free"
+    with pytest.raises(ModelNotAllowedError):
+        admin.service.update_ai_settings(
+            admin.admin, AISettingsChange(model="other/model")
+        )
+
+
+def test_only_an_admin_may_list_the_allowed_models() -> None:
+    admin = Admin()
+    student = _actor(admin.student)
+
+    with pytest.raises(PermissionDeniedError):
+        admin.service.allowed_models(student)
 
 
 def test_admin_cannot_demote_or_deactivate_themselves() -> None:

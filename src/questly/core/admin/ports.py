@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Protocol
 
-from questly.core.admin.models import AISettings, SystemStatus
+from questly.core.admin.models import AISettings, AvailableModel, SystemStatus
 from questly.core.generation.models import ProviderQuotaSnapshot
 
 
@@ -28,6 +28,14 @@ class ProviderQuotaReader(Protocol):
 
     def snapshot(self) -> ProviderQuotaSnapshot:
         """What the model provider says is left today; never raises."""
+        ...
+
+
+class ModelCatalog(Protocol):
+    """The generation models the provider offers right now, in its own order."""
+
+    def available_models(self) -> tuple[AvailableModel, ...]:
+        """Never raises; empty when the provider cannot be reached."""
         ...
 
 

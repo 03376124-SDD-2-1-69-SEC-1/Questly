@@ -32,6 +32,8 @@ from questly.ai.client import (
     _too_similar,
 )
 from questly.ai.retrieval.models import RetrievalResult
+from questly.core.admin.models import AvailableModel
+from questly.core.admin.ports import ModelCatalog
 from questly.core.generation.models import GenerationStep
 from questly.core.generation.schemas import (
     Citation,
@@ -44,6 +46,7 @@ from questly.core.submissions.models import Execution, ExecutionStatus
 from questly.core.submissions.ports import CodeRunner
 from questly.core.submissions.service import outputs_match
 from questly.integrations.judge0 import StubCodeRunner
+from tests.fakes.model_catalog import FakeModelCatalog
 
 # ---------------------------------------------------------------------------
 # StubGenerationClient — kept as regression guard
@@ -258,6 +261,7 @@ def _make_client(
     model: str = "test/model",
     code_runner: CodeRunner | None = None,
     retriever: CitationRetriever | None = None,
+    catalog: ModelCatalog | None = None,
 ) -> OpenRouterGenerationClient:
     """Build a client with a dummy key; SDK won't validate until a call is made."""
     if code_runner is None:
@@ -267,20 +271,24 @@ def _make_client(
         model=lambda: model,
         code_runner=code_runner,
         retriever=retriever,
+        catalog=catalog,
     )
 
 
-def _mock_result(content: str) -> MagicMock:
+def _mock_result(content: str, model: str = "test/model") -> MagicMock:
     """Return a mock that looks like openrouter.components.ChatResult."""
     choice = MagicMock()
     choice.message.content = content
     result = MagicMock()
     result.choices = [choice]
+    result.model = model
     return result
 
 
 _SOLUTION = "n = int(input())\nprint(max(map(int, input().split())))"
 _STRUCTURED_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+# OPS-55: whether a model takes a schema now comes from the catalog.
+_STRUCTURED_CATALOG = FakeModelCatalog((AvailableModel(_STRUCTURED_MODEL, True),))
 
 _VALID_LLM_RESPONSE = json.dumps(
     {
@@ -309,7 +317,7 @@ def _generate(client: OpenRouterGenerationClient, llm_reply: str) -> GenerationR
     with patch.object(
         client._client.chat,
         "send",
-        return_value=_mock_result(llm_reply),
+        return_value=_mock_result(llm_reply, model=client._model()),
     ):
         return client.generate(GenerationRequest(prompt="find max"), _ignore_step)
 
@@ -409,7 +417,7 @@ def test_openrouter_client_rejects_reply_without_valid_solution(
 
 
 def test_openrouter_client_sends_strict_assignment_schema() -> None:
-    client = _make_client(model=_STRUCTURED_MODEL)
+    client = _make_client(model=_STRUCTURED_MODEL, catalog=_STRUCTURED_CATALOG)
 
     with patch.object(
         client._client.chat,
@@ -438,8 +446,9 @@ def test_openrouter_client_sends_strict_assignment_schema() -> None:
     "model",
     ["poolside/laguna-s-2.1:free", "poolside/laguna-xs-2.1:free"],
 )
-def test_poolside_models_omit_unsupported_response_format(model: str) -> None:
-    client = _make_client(model=model)
+def test_models_without_response_format_omit_it(model: str) -> None:
+    catalog = FakeModelCatalog((AvailableModel(model, False),))
+    client = _make_client(model=model, catalog=catalog)
 
     with patch.object(
         client._client.chat,
@@ -552,7 +561,7 @@ def test_openrouter_client_retries_a_rate_limit_then_parses_the_reply(
             return httpx.Response(429, json={"error": {"code": 429, "message": "x"}})
         return httpx.Response(200, json=_chat_result_json(_VALID_LLM_RESPONSE))
 
-    client = _make_client(model=_STRUCTURED_MODEL)
+    client = _make_client(model=_STRUCTURED_MODEL, catalog=_STRUCTURED_CATALOG)
     client._client.sdk_configuration.client = httpx.Client(
         transport=httpx.MockTransport(reply)
     )
@@ -706,7 +715,10 @@ def test_generation_uses_cited_sample_to_retry_wrong_solution() -> None:
     )
     runner = FakeCodeRunner([_ok("4"), _ok("5"), _ok("5"), _ok("42")])
     client = _make_client(
-        model=_STRUCTURED_MODEL, code_runner=runner, retriever=retriever
+        model=_STRUCTURED_MODEL,
+        code_runner=runner,
+        retriever=retriever,
+        catalog=_STRUCTURED_CATALOG,
     )
     steps: list[GenerationStep] = []
     with patch.object(
@@ -1064,3 +1076,205 @@ def test_generation_treats_samples_beyond_the_budget_as_unverified_not_failed(
 def test_generation_clients_say_whether_they_are_configured() -> None:
     assert StubGenerationClient().is_available() is False
     assert _make_client().is_available() is True
+
+
+# ---------------------------------------------------------------------------
+# OPS-55: fallback models, the model that answered, and no silent failures
+# ---------------------------------------------------------------------------
+
+
+def _catalog(*ids: str, structured: tuple[str, ...] = ()) -> FakeModelCatalog:
+    return FakeModelCatalog(tuple(AvailableModel(i, i in structured) for i in ids))
+
+
+def _send_kwargs(client: OpenRouterGenerationClient) -> dict[str, object]:
+    with patch.object(
+        client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+    ) as send:
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+    return send.call_args.kwargs
+
+
+def test_selected_model_goes_first_then_two_more_in_catalog_order() -> None:
+    catalog = _catalog("a/one", "b/two", "c/three", "d/four")
+
+    kwargs = _send_kwargs(_make_client(model="c/three", catalog=catalog))
+
+    assert kwargs["model"] == "c/three"
+    assert kwargs["models"] == ["c/three", "a/one", "b/two"]
+
+
+def test_a_selected_model_missing_from_the_catalog_uses_the_first_three() -> None:
+    catalog = _catalog("a/one", "b/two", "c/three", "d/four")
+
+    kwargs = _send_kwargs(_make_client(model="gone/model", catalog=catalog))
+
+    assert kwargs["model"] == "a/one"
+    assert kwargs["models"] == ["a/one", "b/two", "c/three"]
+
+
+def test_a_short_catalog_is_sent_whole() -> None:
+    kwargs = _send_kwargs(
+        _make_client(model="b/two", catalog=_catalog("a/one", "b/two"))
+    )
+
+    assert kwargs["models"] == ["b/two", "a/one"]
+
+
+def test_an_empty_catalog_sends_the_selected_model_alone() -> None:
+    kwargs = _send_kwargs(_make_client(model="only/model", catalog=_catalog()))
+
+    assert kwargs["model"] == "only/model"
+    assert kwargs["models"] is None
+    assert kwargs["response_format"] is None
+
+
+def test_no_catalog_sends_the_selected_model_alone() -> None:
+    kwargs = _send_kwargs(_make_client(model="only/model"))
+
+    assert kwargs["model"] == "only/model"
+    assert kwargs["models"] is None
+
+
+def test_the_catalog_is_read_on_every_call() -> None:
+    catalog = _catalog("a/one", "b/two")
+    client = _make_client(
+        model="a/one",
+        catalog=catalog,
+        code_runner=FakeCodeRunner([_ok("5"), _ok("42"), _ok("5"), _ok("42")]),
+    )
+    with patch.object(
+        client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+    ) as send:
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+        catalog.models = (AvailableModel("c/three", False),)
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert [call.kwargs["models"] for call in send.call_args_list] == [
+        ["a/one", "b/two"],
+        ["c/three"],
+    ]
+
+
+def test_response_format_is_sent_only_when_every_listed_model_supports_it() -> None:
+    everyone = _catalog("a/one", "b/two", structured=("a/one", "b/two"))
+    one_short = _catalog("a/one", "b/two", structured=("a/one",))
+
+    assert (
+        _send_kwargs(_make_client(model="a/one", catalog=everyone))["response_format"]
+        is _RESPONSE_FORMAT
+    )
+    assert (
+        _send_kwargs(_make_client(model="a/one", catalog=one_short))["response_format"]
+        is None
+    )
+
+
+def test_a_model_past_the_fallback_limit_does_not_block_the_schema() -> None:
+    catalog = _catalog(
+        "a/one", "b/two", "c/three", "d/four", structured=("a/one", "b/two", "c/three")
+    )
+
+    kwargs = _send_kwargs(_make_client(model="a/one", catalog=catalog))
+
+    assert kwargs["response_format"] is _RESPONSE_FORMAT
+
+
+def test_the_model_that_answered_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    client = _make_client(model="a/one", catalog=_catalog("a/one", "b/two"))
+
+    with (
+        caplog.at_level(logging.INFO, logger="questly.ai.client"),
+        patch.object(
+            client._client.chat,
+            "send",
+            return_value=_mock_result(_VALID_LLM_RESPONSE, model="b/two"),
+        ),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert "answered model=b/two selected=a/one" in caplog.text
+
+
+def test_a_failed_reference_run_names_the_model_that_answered(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runner = FakeCodeRunner([_failed(ExecutionStatus.RUNTIME_ERROR), _ok("42")])
+    client = _make_client(model="a/one", code_runner=runner)
+
+    with (
+        caplog.at_level(logging.WARNING, logger="questly.ai.client"),
+        patch.object(
+            client._client.chat,
+            "send",
+            return_value=_mock_result(_VALID_LLM_RESPONSE, model="b/two"),
+        ),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert "model=b/two" in caplog.text
+
+
+def test_every_rejected_draft_is_logged_without_its_body(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = _make_client(model="a/one")
+    replies = [
+        _mock_result('{"title": 7, "secret": "draft body"}', model="b/two"),
+        _mock_result("not json at all", model="b/two"),
+    ]
+
+    with (
+        caplog.at_level(logging.WARNING, logger="questly.ai.client"),
+        patch.object(client._client.chat, "send", side_effect=replies),
+        pytest.raises(ValueError, match="does not match assignment draft schema"),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    rejected = [r for r in caplog.records if "generation draft rejected" in r.message]
+    assert [r.message.split(" reason=")[0] for r in rejected] == [
+        "generation draft rejected model=b/two attempt=1",
+        "generation draft rejected model=b/two attempt=2",
+    ]
+    assert "draft body" not in caplog.text
+
+
+def test_a_grounding_failure_is_logged_with_its_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = _make_client(model="a/one")
+    client._code_runner = FakeCodeRunner([])
+
+    with (
+        caplog.at_level(logging.WARNING, logger="questly.ai.client"),
+        patch.object(
+            client._client.chat, "send", return_value=_mock_result(_VALID_LLM_RESPONSE)
+        ),
+        patch.object(client_module, "_grounding_failure", return_value="too similar"),
+        pytest.raises(ValueError, match="grounded generation failed: too similar"),
+    ):
+        client.generate(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert caplog.text.count("generation draft rejected model=test/model") == 2
+    assert "reason=too similar" in caplog.text
+
+
+def test_a_client_exception_is_logged_and_still_becomes_generation_failed_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = object.__new__(GenerationService)
+    service._client = _make_client()
+
+    with (
+        caplog.at_level(logging.ERROR, logger="questly.core.generation.service"),
+        patch.object(
+            service._client._client.chat,
+            "send",
+            side_effect=RuntimeError("runner died"),
+        ),
+        pytest.raises(GenerationFailedError),
+    ):
+        service._call(GenerationRequest(prompt="find max"), _ignore_step)
+
+    assert "generation failed" in caplog.text
+    assert "runner died" in caplog.text
