@@ -1,0 +1,24 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == '03376124-SDD-2-1-69-SEC-1/Questly'
+    runs-on: [self-hosted, questly-vps]
+    environment: production
+    steps:
+      - name: Build and restart on the VPS
+        env:
+          SSH_ORIGINAL_COMMAND: ${{ github.sha }}
+        run: /usr/local/bin/questly-deploy
+
+      - name: Public health check
+        run: curl -fsS --retry 10 --retry-delay 6 --retry-all-errors https://questly.comtech.fun/health

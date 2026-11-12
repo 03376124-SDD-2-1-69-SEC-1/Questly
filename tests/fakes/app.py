@@ -16,7 +16,11 @@ from fastapi import FastAPI
 
 from questly.ai.app.repository import VectorRepository
 from questly.config import DEFAULT_MAX_UPLOAD_SIZE_BYTES, Settings
-from questly.core.admin.ports import AdminRepository, SystemHealthChecker
+from questly.core.admin.ports import (
+    AdminRepository,
+    ModelCatalog,
+    SystemHealthChecker,
+)
 from questly.core.assignments.ports import (
     AssignmentRepository,
     PostingRepository,
@@ -58,6 +62,7 @@ from tests.fakes.generation import (
     FakeGenerationJobStore,
     FakeProviderQuota,
 )
+from tests.fakes.model_catalog import FakeModelCatalog
 from tests.fakes.notifications import FakeNotificationRepository
 from tests.fakes.submissions import FakeSubmissionRepository, ScriptedCodeRunner
 from tests.fakes.topics import FakeTopicRepository
@@ -102,6 +107,7 @@ def build_app(
     document_ingestor: DocumentIngestor | None = None,
     generation_client: GenerationClient | None = None,
     provider_quota: ProviderQuota | None = None,
+    model_catalog: ModelCatalog | None = None,
     generation_job_store: GenerationJobStore | None = None,
     draft_repository: DraftRepository | None = None,
     document_catalog: DocumentCatalog | None = None,
@@ -142,6 +148,8 @@ def build_app(
         object_storage = FakeObjectStorage()
     if provider_quota is None:
         provider_quota = FakeProviderQuota()
+    if model_catalog is None:
+        model_catalog = FakeModelCatalog()
     if generation_job_store is None:
         generation_job_store = FakeGenerationJobStore()
     if draft_repository is None:
@@ -182,6 +190,7 @@ def build_app(
         document_ingestor=document_ingestor,
         generation_client=generation_client,
         provider_quota=provider_quota,
+        model_catalog=model_catalog,
         generation_job_store=generation_job_store,
         draft_repository=draft_repository,
         document_catalog=document_catalog,
@@ -215,6 +224,7 @@ def build_postgres_app(
     verification_mailer: EmailSender | None = None,
     clock: Clock | None = None,
     code_runner: Runner | None = None,
+    model_catalog: ModelCatalog | None = None,
     secure_cookies: bool = False,
 ) -> FastAPI:
     """Return the app as production builds it, over the throwaway Postgres branch.
@@ -236,5 +246,6 @@ def build_postgres_app(
         email_sender=verification_mailer,
         clock=clock,
         code_runner=code_runner,
+        model_catalog=model_catalog,
         secure_cookies=secure_cookies,
     )

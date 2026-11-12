@@ -158,7 +158,13 @@ BASE_URL=https://questly.example.com
 
 กำหนด `OPENROUTER_API_KEY` เพื่อเรียก OpenRouter สำหรับ generation และ embedding
 (ADR-0009) ถ้าเว้นว่างแอปจะใช้ stub generation client แทน ส่วน `GENERATION_MODEL`
-และ `EMBEDDING_MODEL` ใช้เลือกโมเดล ค่า default อยู่ใน `src/questly/config.py`
+ใช้เป็นค่าเริ่มต้นครั้งแรกเท่านั้น โมเดลที่ Admin เลือกบน A-01 จะถูกเก็บไว้
+A-01 แสดงโมเดลฟรีทุกตัวที่ OpenRouter ประกาศอยู่ตอนนี้ (แคช 30 นาที) และตอน generate
+แอปส่งโมเดลที่เลือกพร้อมโมเดลสำรองอีกไม่เกิน 2 ตัว เพื่อให้ OpenRouter
+ข้ามโมเดลที่ติด rate limit หรือเลิกให้บริการ ตั้ง `GENERATION_MODEL_ALLOWLIST`
+(คั่นด้วย comma) เฉพาะเมื่อต้องการจำกัดรายการ ค่านี้ยังใช้เป็นรายการสำรองเมื่ออ่านรายการของ
+OpenRouter ไม่ได้ (OPS-55, ADR-0012) ส่วน `EMBEDDING_MODEL` ใช้เลือกโมเดล embedding
+ค่า default อยู่ใน `src/questly/config.py`
 ห้าม commit ไฟล์ `.env` หรือใส่ credentials จริงลงใน `.env.example`
 
 #### อีเมล

@@ -17,6 +17,7 @@ from questly.core.admin.models import (
 from questly.core.admin.ports import (
     AdminRepository,
     GenerationUsage,
+    ModelCatalog,
     ProviderQuotaReader,
     SystemHealthChecker,
 )
@@ -43,7 +44,7 @@ class AdminService:
         generation_usage: GenerationUsage,
         provider_quota: ProviderQuotaReader,
         clock: Clock,
-        allowed_models: tuple[str, ...],
+        model_catalog: ModelCatalog,
     ) -> None:
         self.admin_repo = admin_repo
         self.auth_repo = auth_repo
@@ -51,7 +52,7 @@ class AdminService:
         self.generation_usage = generation_usage
         self.provider_quota_reader = provider_quota
         self.clock = clock
-        self.allowed_models = allowed_models
+        self.model_catalog = model_catalog
 
     # --- Instructor Requests ---
     def list_instructor_requests(
@@ -124,11 +125,16 @@ class AdminService:
         self._require_admin(actor)
         return self._with_usage(self.admin_repo.get_ai_settings())
 
+    def allowed_models(self, actor: Actor) -> tuple[str, ...]:
+        """The models A-01 offers, read from the catalog on every call."""
+        self._require_admin(actor)
+        return self._allowed_models()
+
     def update_ai_settings(
         self, actor: Actor, change: AISettingsChange
     ) -> AISettingsWithUsage:
         self._require_admin(actor)
-        if change.model is not None and change.model not in self.allowed_models:
+        if change.model is not None and change.model not in self._allowed_models():
             raise ModelNotAllowedError(change.model)
         if change.daily_quota is not None and change.daily_quota < 1:
             raise InvalidAISettingsError("Daily quota must be at least 1")
@@ -147,6 +153,9 @@ class AdminService:
     def get_system_status(self, actor: Actor) -> SystemStatus:
         self._require_admin(actor)
         return self.health_checker.check_services_health()
+
+    def _allowed_models(self) -> tuple[str, ...]:
+        return tuple(model.id for model in self.model_catalog.available_models())
 
     def _with_usage(self, settings: AISettings) -> AISettingsWithUsage:
         return AISettingsWithUsage(

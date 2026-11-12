@@ -37,27 +37,28 @@ def required_environment(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     config.get_settings.cache_clear()
 
 
-def test_unset_allowlist_allows_only_the_generation_model(
+def test_unset_allowlist_means_every_model_in_the_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("GENERATION_MODEL_ALLOWLIST", "")
-
-    assert config.get_settings().generation_model_allowlist == ("configured/model",)
-
-
-def test_default_allowlist_is_the_ops_26_comparison_result(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No env at all: A-01 gets the OPS-26 measured allowlist (ADR-0012)."""
-    monkeypatch.delenv("GENERATION_MODEL", raising=False)
     monkeypatch.delenv("GENERATION_MODEL_ALLOWLIST", raising=False)
 
-    settings = config.get_settings()
+    assert config.get_settings().generation_model_allowlist == ()
 
-    assert settings.generation_model == config.DEFAULT_GENERATION_MODEL
-    assert settings.generation_model_allowlist == config.DEFAULT_GENERATION_ALLOWLIST
-    # the model every generation actually uses stays pickable on A-01
-    assert settings.generation_model in settings.generation_model_allowlist
+
+def test_blank_allowlist_means_every_model_in_the_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GENERATION_MODEL_ALLOWLIST", " , ")
+
+    assert config.get_settings().generation_model_allowlist == ()
+
+
+def test_the_hard_coded_allowlist_is_gone() -> None:
+    """OPS-55: the free tier changes weekly, so no model list lives in code."""
+    assert not hasattr(config, "DEFAULT_GENERATION_ALLOWLIST")
+    assert (
+        config.Settings.__dataclass_fields__["generation_model_allowlist"].default == ()
+    )
 
 
 def test_allowlist_is_comma_separated_and_trimmed(

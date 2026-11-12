@@ -222,3 +222,32 @@ line in `config.py`'s `DEFAULT_GENERATION_ALLOWLIST`, the value in
   comparable to this ADR.
 - `.env.example` ships the allowlist as a real value now, not empty, so
   a fresh environment gets the measured set without reading this ADR.
+
+## Amended by OPS-55 (2026-11-12)
+
+The frozen allowlist is gone. A-01 now offers OpenRouter's live list of free
+text models (`:free`, zero prompt and completion price), read through the
+`openrouter` SDK and cached for 30 minutes (`ai/model_catalog.py`; a failed read keeps the last good list and is retried after 60 seconds).
+`DEFAULT_GENERATION_ALLOWLIST` is deleted; `GENERATION_MODEL_ALLOWLIST` is
+optional and, when set, only narrows that list and serves as the list while
+OpenRouter's own cannot be read. `GENERATION_MODEL` is the first-boot default
+and nothing more.
+
+Why: on 2026-11-12 production generation failed ("the model did not respond")
+with both quotas full. All three allowlisted models (`poolside/laguna-s-2.1:free`,
+`poolside/laguna-xs-2.1:free`, `nvidia/nemotron-3-super-120b-a12b:free`) had
+zero endpoints on OpenRouter, and the replacement picked by hand,
+`google/gemma-4-31b-it:free`, was rate-limited upstream (504 wrapping a 429).
+The free tier changes weekly; a list frozen in code and in `.env` cannot keep
+up, and one model without a fallback turns one upstream failure into a failed
+generation.
+
+Generation now sends the selected model first and up to two other catalog
+models (`chat.send(model=..., models=[...])`), so OpenRouter routes around a
+dead or rate-limited one, and sends `response_format` only when every model in
+that list reports support for it. A stored model that left the list still
+runs; A-01 marks it "(no longer available)".
+
+`scripts/compare_generation_models.py` stays as a tool for comparing quality
+between models. It no longer keeps the app running: nobody has to re-run it
+when OpenRouter retires a slug.
