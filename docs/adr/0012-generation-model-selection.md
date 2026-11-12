@@ -227,7 +227,7 @@ line in `config.py`'s `DEFAULT_GENERATION_ALLOWLIST`, the value in
 
 The frozen allowlist is gone. A-01 now offers OpenRouter's live list of free
 text models (`:free`, zero prompt and completion price), read through the
-`openrouter` SDK and cached for 30 minutes (`ai/model_catalog.py`).
+`openrouter` SDK and cached for 30 minutes (`ai/model_catalog.py`; a failed read keeps the last good list and is retried after 60 seconds).
 `DEFAULT_GENERATION_ALLOWLIST` is deleted; `GENERATION_MODEL_ALLOWLIST` is
 optional and, when set, only narrows that list and serves as the list while
 OpenRouter's own cannot be read. `GENERATION_MODEL` is the first-boot default

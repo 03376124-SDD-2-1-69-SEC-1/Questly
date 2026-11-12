@@ -227,8 +227,9 @@ def _ai_page(
             "form": form,
             "models": models,
             "stored_model": current.settings.model,
-            # Empty list: the provider list could not be read; show only the
-            # stored model. Otherwise a stored model missing from it is flagged.
+            # Empty: nothing offered (provider unreadable, or the allowlist
+            # matched nothing); show only the stored model. Otherwise a stored
+            # model missing from the list is flagged.
             "catalog_empty": not models,
             "stored_model_missing": bool(models)
             and current.settings.model not in models,
@@ -251,6 +252,11 @@ def ai_tab(request: Request, saved: str = "") -> HTMLResponse:
     return _ai_page(request, actor, saved=bool(saved))
 
 
+def _stored_model_unlisted(service: AdminService, actor: Actor) -> bool:
+    stored = service.get_ai_settings(actor).settings.model
+    return stored not in service.allowed_models(actor)
+
+
 def _whole_number(value: str, label: str) -> int:
     try:
         return int(value.strip())
@@ -269,6 +275,10 @@ def ai_save(
 ) -> RedirectResponse | HTMLResponse:
     require_csrf(request, csrf_token)
     actor = current_actor(request)
+    # A blank model means "keep the stored one", offered only while the stored
+    # model is not on the list; otherwise a blank post is refused like any
+    # unlisted model.
+    keep_stored = model == "" and _stored_model_unlisted(_service(request), actor)
     submitted = {
         "model": model,
         "daily_quota": daily_quota,
@@ -277,8 +287,7 @@ def ai_save(
     }
     try:
         change = AISettingsChange(
-            # Blank only when the stored model left the list: keep it.
-            model=model or None,
+            model=None if keep_stored else model,
             daily_quota=_whole_number(daily_quota, "Daily quota"),
             max_pages=_whole_number(max_pages, "Max pages"),
             require_citations=bool(require_citations),

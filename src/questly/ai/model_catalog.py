@@ -16,6 +16,7 @@ from questly.core.generation.ports import Clock
 logger = logging.getLogger(__name__)
 
 _CACHE_SECONDS = 30 * 60
+_PAGE_SIZE = 1000
 # After a failed read, ask again soon instead of serving a stale or empty list
 # for the whole cache window.
 _RETRY_SECONDS = 60
@@ -48,7 +49,7 @@ class _ModelListResponse(Protocol):
 
 
 class _Models(Protocol):
-    def list(self) -> _ModelListResponse: ...
+    def list(self, *, limit: int) -> _ModelListResponse: ...
 
 
 class ModelListClient(Protocol):
@@ -115,9 +116,10 @@ class OpenRouterFreeModelCatalog:
 
     def _read(self, now: datetime) -> None:
         try:
-            # shortcut: one page (500 models); OpenRouter lists far fewer than
-            # that today, paginate if it ever does.
-            models = _free_text_models(self._client.models.list().result.data)
+            # shortcut: one page, the SDK maximum of 1000 models (OpenRouter
+            # lists a few hundred); follow `.next()` if it ever lists more.
+            listed = self._client.models.list(limit=_PAGE_SIZE)
+            models = _free_text_models(listed.result.data)
         except Exception:  # noqa: BLE001 -- A-01 and generation must survive an outage
             logger.warning(
                 "could not read the OpenRouter model list; keeping the last good one",

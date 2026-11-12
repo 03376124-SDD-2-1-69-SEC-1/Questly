@@ -423,6 +423,23 @@ async def test_a_stored_model_missing_from_the_list_is_flagged_and_kept() -> Non
 
 
 @pytest.mark.anyio
+async def test_a_blank_model_is_refused_while_the_stored_model_is_listed() -> None:
+    api = Admin()
+    client = await api.client_for(ADMIN)
+    before = api.settings.settings
+
+    response = await post_form(
+        client,
+        "/admin/settings/ai",
+        {"model": "", "daily_quota": "7", "max_pages": "10"},
+        page="/admin/settings/ai",
+    )
+
+    assert response.status_code == 422
+    assert api.settings.settings == before
+
+
+@pytest.mark.anyio
 async def test_an_empty_catalog_shows_the_stored_model_and_a_warning() -> None:
     api = Admin()
     client = await api.client_for(ADMIN)
@@ -431,7 +448,7 @@ async def test_an_empty_catalog_shows_the_stored_model_and_a_warning() -> None:
     response = await client.get("/admin/settings/ai")
 
     assert response.status_code == 200
-    assert "Could not read OpenRouter's free model list" in response.text
+    assert "No free models are on offer" in response.text
     assert api.settings.settings.model in response.text
     assert "no longer available" not in response.text
 

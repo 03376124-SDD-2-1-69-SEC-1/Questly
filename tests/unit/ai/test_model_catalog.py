@@ -35,13 +35,15 @@ class FakeSdk:
     data: list[SimpleNamespace] = field(default_factory=list)
     fail: bool = False
     calls: int = 0
+    limits: list[int] = field(default_factory=list)
 
     @property
     def models(self) -> SimpleNamespace:
         return SimpleNamespace(list=self._list)
 
-    def _list(self) -> SimpleNamespace:
+    def _list(self, *, limit: int) -> SimpleNamespace:
         self.calls += 1
+        self.limits.append(limit)
         if self.fail:
             raise ConnectionError("no route to openrouter")
         return SimpleNamespace(result=SimpleNamespace(data=self.data))
@@ -68,6 +70,14 @@ def test_only_free_text_models_are_kept_in_openrouters_order() -> None:
     catalog = OpenRouterFreeModelCatalog(sdk, FakeClock())
 
     assert _ids(catalog) == ["b/free:free", "f/both:free", "h/zero-float:free"]
+
+
+def test_the_whole_first_page_is_requested() -> None:
+    sdk = FakeSdk([_model("a/m:free")])
+
+    OpenRouterFreeModelCatalog(sdk, FakeClock()).available_models()
+
+    assert sdk.limits == [1000]
 
 
 @pytest.mark.parametrize(

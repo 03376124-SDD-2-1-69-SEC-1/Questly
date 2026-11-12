@@ -337,7 +337,10 @@ class OpenRouterGenerationClient:
                     response_format=response_format,
                 )
             except _SDK_ERRORS:
-                logger.exception("OpenRouter call failed model=%s", selected)
+                logger.exception(
+                    "OpenRouter call failed models=%s",
+                    [candidate.id for candidate in candidates] or [selected],
+                )
                 raise
 
             # The model that really answered, which may be a fallback.
