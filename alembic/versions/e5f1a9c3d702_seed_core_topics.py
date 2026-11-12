@@ -47,9 +47,7 @@ TOPICS = [
 
 def upgrade() -> None:
     op.get_bind().execute(
-        sa.text(
-            "INSERT INTO core.topics (name) VALUES (:name) ON CONFLICT DO NOTHING"
-        ),
+        sa.text("INSERT INTO core.topics (name) VALUES (:name) ON CONFLICT DO NOTHING"),
         [{"name": name} for name in TOPICS],
     )
 
