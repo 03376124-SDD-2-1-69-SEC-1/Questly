@@ -18,9 +18,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from questly.ai.embeddings.openrouter import create_openrouter_embedding_provider
 from questly.ai.ingestion.pdf_extractor import PyMuPDFPageExtractor
