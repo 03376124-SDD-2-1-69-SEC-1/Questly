@@ -215,9 +215,7 @@ def _ai_page(
             "max_pages": str(current.settings.max_pages),
             "require_citations": "on" if current.settings.require_citations else "",
         }
-    models = list(service.allowed_models)
-    if current.settings.model not in models:
-        models.insert(0, current.settings.model)
+    models = service.allowed_models(actor)
     provider = service.provider_quota(actor)
     return _templates(request).TemplateResponse(
         request,
@@ -228,6 +226,13 @@ def _ai_page(
             "tab": "ai",
             "form": form,
             "models": models,
+            "stored_model": current.settings.model,
+            # Empty: nothing offered (provider unreadable, or the allowlist
+            # matched nothing); show only the stored model. Otherwise a stored
+            # model missing from the list is flagged.
+            "catalog_empty": not models,
+            "stored_model_missing": bool(models)
+            and current.settings.model not in models,
             "usage_this_month": current.usage_this_month,
             "provider": provider,
             "provider_resets": provider.resets_at.astimezone(LOCAL_ZONE).strftime(
@@ -245,6 +250,11 @@ def ai_tab(request: Request, saved: str = "") -> HTMLResponse:
     """A-01 AI: the settings form, this month's usage and the provider quota."""
     actor = current_actor(request)
     return _ai_page(request, actor, saved=bool(saved))
+
+
+def _stored_model_unlisted(service: AdminService, actor: Actor) -> bool:
+    stored = service.get_ai_settings(actor).settings.model
+    return stored not in service.allowed_models(actor)
 
 
 def _whole_number(value: str, label: str) -> int:
@@ -265,6 +275,10 @@ def ai_save(
 ) -> RedirectResponse | HTMLResponse:
     require_csrf(request, csrf_token)
     actor = current_actor(request)
+    # A blank model means "keep the stored one", offered only while the stored
+    # model is not on the list; otherwise a blank post is refused like any
+    # unlisted model.
+    keep_stored = model == "" and _stored_model_unlisted(_service(request), actor)
     submitted = {
         "model": model,
         "daily_quota": daily_quota,
@@ -273,7 +287,7 @@ def ai_save(
     }
     try:
         change = AISettingsChange(
-            model=model,
+            model=None if keep_stored else model,
             daily_quota=_whole_number(daily_quota, "Daily quota"),
             max_pages=_whole_number(max_pages, "Max pages"),
             require_citations=bool(require_citations),

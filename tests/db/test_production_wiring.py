@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import text
 
-from questly.core.admin.models import AISettingsChange
+from questly.core.admin.models import AISettingsChange, AvailableModel
 from questly.core.assignments.models import (
     AssignmentContent,
     Difficulty,
@@ -33,6 +33,7 @@ from questly.integrations.email import StubEmailSender
 from tests.fakes.app import build_postgres_app, fake_settings
 from tests.fakes.auth import verification_path
 from tests.fakes.documents import FakeObjectStorage
+from tests.fakes.model_catalog import FakeModelCatalog
 from tests.integration.forms import asgi_client, log_in
 
 pytestmark = pytest.mark.postgres
@@ -240,10 +241,13 @@ def test_admin_model_change_reaches_the_generation_client(
     )
     app = build_postgres_app(
         postgres_url,
-        settings=replace(
-            fake_settings(),
-            openrouter_api_key="not-a-real-key",
-            generation_model_allowlist=(original_settings.model, "chosen/by-admin"),
+        settings=replace(fake_settings(), openrouter_api_key="not-a-real-key"),
+        # The real catalog would call OpenRouter with the fake key.
+        model_catalog=FakeModelCatalog(
+            (
+                AvailableModel(original_settings.model, False),
+                AvailableModel("chosen/by-admin", False),
+            )
         ),
     )
     admin_actor = Actor(admin.id, Role.ADMIN, admin.full_name, admin.email)

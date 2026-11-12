@@ -40,12 +40,17 @@ from questly.ai.embeddings.openrouter import create_openrouter_embedding_provide
 from questly.ai.ingestion.document_ingestor import PdfDocumentIngestor
 from questly.ai.ingestion.pdf_extractor import PyMuPDFPageExtractor
 from questly.ai.ingestion.pipeline import PdfIngestionService
+from questly.ai.model_catalog import OpenRouterFreeModelCatalog, StubModelCatalog
 from questly.ai.quota import OpenRouterProviderQuota, StubProviderQuota
 from questly.ai.retrieval.service import RetrievalService
 from questly.api_errors import ApplicationErrorResponse
 from questly.config import PRODUCTION, Settings, get_settings
 from questly.core.admin.pages import router as admin_page_router
-from questly.core.admin.ports import AdminRepository, SystemHealthChecker
+from questly.core.admin.ports import (
+    AdminRepository,
+    ModelCatalog,
+    SystemHealthChecker,
+)
 from questly.core.admin.routes import router as admin_router
 from questly.core.admin.service import AdminService
 from questly.core.assignments.pages import router as assignment_page_router
@@ -315,6 +320,7 @@ def create_app(
     document_ingestor: DocumentIngestor | None = None,
     generation_client: GenerationClient | None = None,
     provider_quota: ProviderQuota | None = None,
+    model_catalog: ModelCatalog | None = None,
     generation_job_store: GenerationJobStore | None = None,
     draft_repository: DraftRepository | None = None,
     document_catalog: DocumentCatalog | None = None,
@@ -470,6 +476,21 @@ def create_app(
             )
         else:
             provider_quota = StubProviderQuota(clock)
+    if model_catalog is None:
+        if use_settings().openrouter_api_key:
+            model_catalog = OpenRouterFreeModelCatalog(
+                OpenRouter(
+                    api_key=use_settings().openrouter_api_key,
+                    timeout_ms=_QUOTA_TIMEOUT_MS,
+                ),
+                clock,
+                allowlist=use_settings().generation_model_allowlist,
+            )
+        else:
+            model_catalog = StubModelCatalog(
+                use_settings().generation_model_allowlist
+                or (use_settings().generation_model,)
+            )
     auth_service = AuthService(
         auth_repository,
         notification_service,
@@ -489,7 +510,7 @@ def create_app(
         generation_usage=draft_repository,
         provider_quota=provider_quota,
         clock=clock,
-        allowed_models=use_settings().generation_model_allowlist,
+        model_catalog=model_catalog,
     )
     application.state.admin_service = admin_service
 
@@ -546,6 +567,7 @@ def create_app(
                 api_key=use_settings().openrouter_api_key,
                 model=lambda: admin_repository.get_ai_settings().model,
                 code_runner=code_runner,
+                catalog=model_catalog,
                 retriever=VectorCitationRetriever(
                     embedding_provider, RetrievalService(vector_repository)
                 ),

@@ -7,6 +7,7 @@ it is generated in must be one the Instructor owns.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -58,6 +59,8 @@ from questly.core.generation.schemas import (
     GenerationRequest,
     GenerationResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 QUOTA_ZONE = ZoneInfo("Asia/Bangkok")
 STEPS = (1, 2, 3, 4)
@@ -441,6 +444,9 @@ class GenerationService:
         except GenerationAbandonedError:
             raise
         except Exception as error:  # noqa: BLE001 -- any client failure is T-03d
+            # The message and cause stay out of the T-03d text; the log is
+            # where an operator finds why. No prompt or draft body is logged.
+            logger.exception("generation failed")
             raise GenerationFailedError from error
 
     def _require_instructor(self, actor: Actor) -> None:

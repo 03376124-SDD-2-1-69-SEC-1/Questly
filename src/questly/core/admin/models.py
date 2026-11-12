@@ -18,7 +18,7 @@ class SelfModificationError(Exception):
 
 
 class ModelNotAllowedError(Exception):
-    """The chosen generation model is not in the configured allowlist: 422."""
+    """The chosen generation model is not in the current model list: 422."""
 
 
 class InvalidAISettingsError(Exception):
@@ -33,6 +33,14 @@ class AISettings:
     daily_quota: int
     max_pages: int
     require_citations: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AvailableModel:
+    """A generation model the provider offers right now (OPS-55)."""
+
+    id: str
+    supports_response_format: bool
 
 
 @dataclass(frozen=True, slots=True)

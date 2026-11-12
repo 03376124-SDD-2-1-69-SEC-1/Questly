@@ -162,8 +162,14 @@ start (`MissingConfigurationError`). Any other `APP_ENV` falls back to
 
 Set `OPENROUTER_API_KEY` to call OpenRouter for generation and embeddings
 (ADR-0009); leave it empty to run on the stub generation client.
-`GENERATION_MODEL` and `EMBEDDING_MODEL` pick the models and default to the
-values in `src/questly/config.py`. Never commit `.env` or place real
+`GENERATION_MODEL` is only the first-boot default; the model an Admin picks on
+A-01 is stored. A-01 offers every free text model OpenRouter lists right now
+(cached 30 minutes), and generation sends the selected model plus up to two
+others so OpenRouter routes around a rate-limited or dead one. Set
+`GENERATION_MODEL_ALLOWLIST` (comma-separated) only to narrow that list; it is
+also the list used while OpenRouter's own cannot be read (OPS-55, ADR-0012).
+`EMBEDDING_MODEL` picks the embedding model and defaults to the value in
+`src/questly/config.py`. Never commit `.env` or place real
 credentials in `.env.example`.
 
 #### Email
